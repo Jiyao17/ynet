@@ -15,7 +15,7 @@ import numpy as np
 from PIL import Image
 
 from dataset import InCarDSODGenerator, LBODDataset
-from ynet import YNetOD
+from nn import YNetOD
 
 
 # Hyperparameters
