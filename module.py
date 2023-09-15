@@ -2,10 +2,13 @@
 # code partially modified from https://github.com/ultralytics/ultralytics
 
 
-from typing import Any
+from typing import Any, List, Optional, Tuple, Dict, Union
+
 import torch
 from torch import nn
 import torchvision
+from torchvision.models.detection import fcos
+from torchvision.models.detection.anchor_utils import AnchorGenerator
 
 
 class Conv(nn.Module):
@@ -207,58 +210,52 @@ class FusionPlant(nn.Module):
 
 
 class Detect(nn.Module):
-    # FCOS-like detector
-    def __init__(self, c, num_class):
+    # YOLOv8-like detector
+    def __init__(self, channels, num_classes, reg_max=8, num_convs=2):
         super(Detect, self).__init__()
-        self.c = c # channels
-        self.num_class = num_class
+        self.channels = channels # channels
+        self.reg_max = reg_max
+        self.num_class = num_classes
 
-
-        self.branch1 = nn.Sequential(
-            Conv(c, c, 3, 1, 1),
-            Conv(c, c, 3, 1, 1),
-        )
-        self.classifier = nn.Conv2d(c, num_class, 1, 1, 0)
-
-        self.centerness = nn.Conv2d(c, 1, 1, 1, 0)
-
+        convs = [ Conv(channels, channels, 3, 1, 1) for _ in range(num_convs) ]
         self.regressor = nn.Sequential(
-            Conv(c, c, 3, 1, 1),
-            Conv(c, c, 3, 1, 1),
-            nn.Conv2d(c, 4, 1, 1, 0),
+            *convs,
+            nn.Conv2d(channels, reg_max*4, 1, 1, 0),
+        )
+        convs = [ Conv(channels, channels, 3, 1, 1) for _ in range(num_convs) ]
+        self.classifier = nn.Sequential(
+            *convs,
+            nn.Conv2d(channels, num_classes, 1, 1, 0),
         )
 
     def forward(self, x) -> 'tuple[torch.Tensor]':
-        b1 = self.branch1(x)
-        cls = self.classifier(b1)
-        ctr = self.centerness(b1)
-        bbox = self.regressor(x)
+        classes = self.classifier(x)
+        boxes = self.regressor(x)
 
-        return cls, ctr, bbox
+        return classes, boxes
     
 
 class Head(nn.Module):
     # YOLO-like head
-    def __init__(self, depth, width, ratio, num_class, reg_max):
+    def __init__(self, depth, width, ratio, num_class):
         super(Head, self).__init__()
         self.depth = depth
         self.width = width
         self.ratio = ratio
         self.num_class = num_class
-        self.reg_max = reg_max
 
         self.fpn = FPN(depth, width, ratio)
-        self.detector1 = Detect(width*4, reg_max, num_class)
-        self.detector2 = Detect(width*8, reg_max, num_class)
-        self.detector3 = Detect(width*8*ratio, reg_max, num_class)
+        self.detector1 = Detect(width*4, 8, num_class)
+        self.detector2 = Detect(width*8, 16, num_class)
+        self.detector3 = Detect(width*8*ratio, 32, num_class)
 
 
     def forward(self, c4, c6, sppf) -> 'tuple[torch.Tensor]':
         c15, c18, c21 = self.fpn(c4, c6, sppf)
-        cls1, bbox1 = self.detector1(c15)
-        cls2, bbox2 = self.detector2(c18)
-        cls3, bbox3 = self.detector3(c21)
-        return cls1, bbox1, cls2, bbox2, cls3, bbox3
+        cls1, ctr1, bbox1 = self.detector1(c15)
+        cls2, ctr2, bbox2 = self.detector2(c18)
+        cls3, ctr3, bbox3 = self.detector3(c21)
+        return cls1, ctr1, bbox1, cls2, ctr2, bbox2, cls3, ctr3, bbox3
 
 
 class YNet(nn.Module):
@@ -272,64 +269,24 @@ class YNet(nn.Module):
         # ratio = [1, ]
         return YNet(depth, width, ratio)
 
-    def __init__(self, depth, width, ratio, num_class=20, reg_max=20):
+    def __init__(self, depth, width, ratio, num_class=20):
         super(YNet, self).__init__()
         self.depth = depth
         self.width = width
         self.ratio = ratio
         self.num_class = num_class
-        self.reg_max = reg_max
 
         self.backbone1 = Backbone(depth, width, ratio)
         self.backbone2 = self.backbone1
         self.fusor = FusionPlant(depth, width, ratio)
-        self.head = Head(depth, width, ratio, num_class, reg_max)
+        self.head = Head(depth, width, ratio, num_class)
 
     def forward(self, x1, x2) -> 'tuple[torch.Tensor]':
         c4_1, c6_1, sppf_1 = self.backbone1(x1)
         c4_2, c6_2, sppf_2 = self.backbone2(x2)
         c4, c6, sppf = self.fusor(c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2)
-        cls1, bbox1, cls2, bbox2, cls3, bbox3 = self.head(c4, c6, sppf)
-        return cls1, bbox1, cls2, bbox2, cls3, bbox3
-    
-
-class TinyYNet(nn.Module):
-    def __init__(self, *args, **kwargs) -> None:
-        super().__init__(*args, **kwargs)
-
-        self.extractor1 = nn.Sequential(
-            # 3*640*640 -> 16*320*320
-            Conv(3, 16, 3, 2, 1),
-            # 16*320*320 -> 32*160*160
-            Conv(16, 32, 3, 2, 1),
-            # 32*160*160 -> 64*80*80
-            Conv(32, 64, 3, 2, 1),
-        )
-        self.extractor2 = nn.Sequential(
-            Conv(3, 16, 3, 2, 1),
-            Conv(16, 32, 3, 2, 1),
-            Conv(32, 64, 3, 2, 1),
-        )
-
-        self.fusor = ConvFusion(64*2, 64, 3, 2, 1)
-
-        self.detector = Detect(64, 20)
-
-
-    def forward(self, x1, x2) -> 'tuple[torch.Tensor]':
-        f1 = self.extractor1(x1)
-        f2 = self.extractor2(x2)
-
-        f = self.fusor(f1, f2)
-        cls, str, box = self.detector(f)
-
-        return cls, str, box
-    
-    def predict(self, x1, x2) -> 'tuple[torch.Tensor]':
-        assert NotImplementedError
-        cls, ctr, box = self.forward(x1, x2)
-        torchvision.ops.nms(box, ctr, 0.5)
-        return cls, box
+        cls1, ctr1, bbox1, cls2, ctr2, bbox2, cls3, ctr3, bbox3 = self.head(c4, c6, sppf)
+        return cls1, ctr1, bbox1, cls2, ctr2, bbox2, cls3, ctr3, bbox3
 
 
 class YOLOv8(nn.Module):
@@ -347,13 +304,14 @@ class YOLOv8(nn.Module):
         return cls1, bbox1, cls2, bbox2, cls3, bbox3
 
 
-
-class DetectLoss():
+class YOLOLoss():
     def __init__(self) -> None:
         self.mse = nn.MSELoss()
         self.bce = nn.BCEWithLogitsLoss()
         self.ce = nn.CrossEntropyLoss()
         self.focal = torchvision.ops.sigmoid_focal_loss
+
+
     
     def encode(self, target: torch.Tensor, c: int, img_size: 'tuple[int]'):
         """
@@ -365,7 +323,6 @@ class DetectLoss():
         batch = target.shape[0]
         w, h = img_size
         cls = torch.zeros((batch, c, w, h))
-        ctr = torch.zeros((batch, 1, w, h))
         bbox = torch.zeros((batch, 4, w, h))
 
         for i in range(batch):
@@ -378,31 +335,28 @@ class DetectLoss():
                     l, t, r, b = (x-x0) / w, (y-y0) / h, (x1-x) / w, (y1-y) / h
                     bbox[i, :, x, y] = torch.tensor([l, t, r, b])
                     # ctr
-                    ctr_val = (min(l, r) * min(t, b)) / (max(l, r) * max(t, b))
-                    ctr[i, 0, x, y] = torch.sqrt(ctr_val)
+                    # ctr_val = (min(l, r) * min(t, b)) / (max(l, r) * max(t, b))
 
-        return cls, ctr, bbox
+        return cls, bbox
 
     def __call__(self, pred: torch.Tensor, target: torch.Tensor, ) -> torch.Tensor:
-        # pred: (cls, ctr, bbox)
+        # pred: (clases, bboxes)
         # target: (batch, (x0, y0, x1, y1, cls))
         # cls: (batch, num_class, h, w)
-        # ctr: (batch, 1, h, w)
-        # bbox: (batch, 4, h, w)
+        # bbox: (batch, 4, h, w, reg_max)
 
         batch = pred[0].shape[0]
         channels = pred[0].shape[1]
         image_size = pred[0].shape[2:]
-        cls_gt, ctr_gt, bbox_gt = self.encode(target, channels, image_size)
+        cls_gt, bbox_gt = self.encode(target, channels, image_size)
 
         cls_loss = self.focal(pred[0], cls_gt).mean()
-        ctr_loss = self.bce(pred[1], ctr_gt)
         # bbox_loss where cls_gt > 0
         bbox_loss = 0
         for i in range(batch):
             if cls_gt[i].sum() > 0:
                 bbox_loss += self.mse(pred[2][i], bbox_gt[i])
-        loss = cls_loss + ctr_loss + bbox_loss
+        loss = cls_loss + bbox_loss
         return loss
 
 
@@ -412,11 +366,12 @@ def test():
     x1 = torch.randn(32, 3, 640, 640)
     x2 = torch.randn(32, 3, 640, 640)
     
-    cls, ctr, bbox = net(x1, x2)
-    loss_fn = DetectLoss()
-    loss = loss_fn((cls, ctr, bbox), torch.randint(-1, 1, (32, 5)))
-    loss.backward()
-    print(loss.item())
+    classes, boxes = net(x1, x2)
+    print(classes.shape, boxes.shape)
+    # loss_fn = DetectLoss()
+    # loss = loss_fn((result['boxes'], result['labels']), torch.randint(-1, 1, (32, 5)))
+    # loss.backward()
+    # print(loss.item())
 
 def test_yolo():
     net = YOLOv8(1, 16, 1)
