@@ -259,3 +259,35 @@ class InCarDSODGenerator():
     def export(self, target_dir: str):
         pass
 
+    x1 = torch.randn(4, 3, 640, 640)
+    x2 = torch.randn(4, 3, 640, 640)
+    targets = [
+        {
+            "boxes": torch.tensor([
+                [16, 16, 32, 32],
+                [16, 16, 32, 32],
+                [16, 16, 32, 32],
+                [16, 16, 32, 32],
+                ], dtype=torch.float32),
+            "labels": torch.tensor([1, 0, 0, 0], dtype=torch.int64),
+        },
+        {
+            "boxes": torch.tensor([[1, 1, 2, 2]], dtype=torch.float32),
+            "labels": torch.tensor([0], dtype=torch.int64),
+        },
+        {
+            "boxes": torch.tensor([[1, 1, 2, 2]], dtype=torch.float32),
+            "labels": torch.tensor([0], dtype=torch.int64),
+        },
+        {
+            "boxes": torch.tensor([
+                [16, 16, 32, 32],
+                [16, 16, 32, 32],
+                ], dtype=torch.float32),
+            "labels": torch.tensor([2, 1], dtype=torch.int64),
+        },
+    ]
+
+
+
+

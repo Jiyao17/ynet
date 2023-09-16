@@ -5,6 +5,7 @@ from typing import NewType, Tuple, List
 
 import torch
 from torch.utils.data import Dataset
+from torchvision import ops
 
 import numpy as np
 from PIL import Image
@@ -30,10 +31,10 @@ TensorDataset = List[TensorDataEntry]
 class LBIDRawDataset():
     labels = ['nothing', 'airpod', 'phone', 'wallet', 'key', 'card', ]
 
-    def __init__(self, dir: str,) -> None:
+    def __init__(self, ds_dir: str,) -> None:
         super().__init__()
-        self.dir = dir
-        self.image_dir = dir + '/images/'
+        self.dir = ds_dir
+        self.image_dir = ds_dir + '/images/'
 
         self.items: RawDataset = []
         self.raw_items = self.parse_organize()
@@ -52,24 +53,31 @@ class LBIDRawDataset():
                     for raw_label in raw_labels:
                         x, y, w, h, _, classes, ow, oh = list(raw_label.values())
                         x, y, w, h = int(x*ow/100), int(y*oh/100), int(w*ow/100), int(h*oh/100)
+                        x1, y1, x2, y2 = x, y, x+w, y+h
                         label: Label = LBIDRawDataset.labels.index(classes[0])
-                        gts.append(((x, y, w, h), label))
+                        gts.append(((x1, y1, x2, y2), label))
 
                 self.items.append((filename, gts))
 
         return self.items
 
-    def split_raw_dataset(self, train_num: int, test_num: int) \
+    def split_raw_dataset(self,
+        train={'nothing': 4, 'other': 8},
+        test={'nothing': 2, 'other': 4},
+        expand=(2, 2)) \
         -> 'Tuple[RawDataset, RawDataset]':
         nothing_items = [ item for item in self.items if item[1] == [] ]
         other_items = [ item for item in self.items if item[1] != [] ]
 
-        train_nothing = nothing_items[:train_num]
-        test_nothing = nothing_items[train_num:train_num+test_num]
-        train_other = other_items[:train_num]
-        test_other = other_items[train_num:train_num+test_num]
+        # split nothing and other items
+        train_nothing = nothing_items[:train['nothing']]
+        test_nothing = nothing_items[train['nothing']:train['nothing']+test['nothing']]
+        train_other = other_items[:train['other']]
+        test_other = other_items[train['other']:train['other']+test['other']]
 
         # sample nothing images
+        train_num, test_num = sum(train.values()), sum(test.values())
+        train_num, test_num = train_num * expand[0], test_num * expand[1]
         train_nothing_idx = np.random.choice(range(len(train_nothing)), train_num, replace=True)
         test_nothing_idx = np.random.choice(range(len(test_nothing)), test_num, replace=True)
         train_nothing_items = [ train_nothing[i] for i in train_nothing_idx ]
@@ -81,18 +89,34 @@ class LBIDRawDataset():
         test_other_items = [ test_other[i] for i in test_other_idx ]
 
         # merge two lists
+        # generate non-nothing pairs
         paired_train_items: RawDataset = [ 
             (nothing, other) for nothing, other in zip(train_nothing_items, train_other_items)
         ]
+        # generate nothing pairs
+        rand_nothing_idx0 = np.random.choice(range(len(train_nothing_items)), train_num, replace=True)
+        rand_nothing_idx1 = np.random.choice(range(len(test_nothing_items)), train_num, replace=True)
+        paired_train_items += [
+            (train_nothing_items[idx0], train_nothing_items[idx1]) \
+                for idx0, idx1 in zip(rand_nothing_idx0, rand_nothing_idx1)
+        ]
+        # generate non-nothing pairs
         paired_test_items: RawDataset = [
             (nothing, other) for nothing, other in zip(test_nothing_items, test_other_items)
         ]
-
+        # generate nothing pairs
+        rand_nothing_idx0 = np.random.choice(range(len(test_nothing_items)), test_num, replace=True)
+        rand_nothing_idx1 = np.random.choice(range(len(test_nothing_items)), test_num, replace=True)
+        paired_test_items += [
+            (test_nothing_items[idx0], test_nothing_items[idx1]) \
+                for idx0, idx1 in zip(rand_nothing_idx0, rand_nothing_idx1)
+        ]
+        
         return paired_train_items, paired_test_items
 
 
 class LBIDTensorDataset(Dataset):
-    def __init__(self, dataset: RawDataset, transform) -> None:
+    def __init__(self, dataset: RawDataset, transform=None) -> None:
         super().__init__()
         self.dataset = dataset
         self.transform = transform
@@ -111,30 +135,46 @@ class LBIDTensorDataset(Dataset):
         before_img = Image.open(before_file)
         after_img = Image.open(after_file)
         if self.transform is not None:
-            before_img = self.transform(before_file)
-            after_img = self.transform(after_file)
+            before_img = self.transform(before_img)
+            after_img = self.transform(after_img)
 
         after_boxes = [ target[0] for target in after_targets ]
         after_labels = [ target[1] for target in after_targets ]
         after_boxes = torch.as_tensor(after_boxes, dtype=torch.int64)
         after_labels = torch.as_tensor(after_labels, dtype=torch.int64)
 
-        return (before_img, after_img), (after_boxes, after_labels)
+        return (before_img, after_img), {'boxes': after_boxes, 'labels': after_labels}
     
     def __len__(self):
         return len(self.dataset)
 
 
+def collate_fn(batch):
+    """
+    batch: list of tuple (before_img, after_img), targets
+    """
+    images = [ (before, after) for (before, after), targets in batch ]
+    targets = [ targets for (before, after), targets in batch ]
+
+    before_images = [ before for before, after in images ]
+    after_images = [ after for before, after in images ]
+    before_images = torch.stack(before_images)
+    after_images = torch.stack(after_images)
+
+    return (before_images, after_images), targets
+
+
 def test(dataset_dir: str):
     ds = LBIDRawDataset(dataset_dir,)
-    trainset, testset = ds.split_raw_dataset(2, 1)
+    trainset, testset = ds.split_raw_dataset((2, 1), (2, 2))
     trainset: TensorDataset = LBIDTensorDataset(trainset, None)
     testset: TensorDataset = LBIDTensorDataset(testset, None)
     # show a random image pair from dataset
     import random
     import matplotlib.pyplot as plt
     index = random.randint(0, len(trainset) - 1)
-    (before, after), (boxes, labels) = trainset[index]
+    (before, after), targets = trainset[index]
+    boxes, labels = targets['boxes'], targets['labels']
     labels = [ LBIDRawDataset.labels[i] for i in labels ]
     
     plt.subplot(1, 2, 1)
@@ -144,12 +184,12 @@ def test(dataset_dir: str):
     # box = [x, y, w, h]
     after = np.array(after)
     for box in boxes:
-        x, y, w, h = box
+        x1, y1, x2, y2 = box
         line_width = 5
-        after[y:y+line_width, x:x+w, :] = 255
-        after[y+h-line_width:y+h, x:x+w, :] = 255
-        after[y:y+h, x:x+line_width, :] = 255
-        after[y:y+h, x+w-line_width:x+w, :] = 255
+        after[y1:y1+line_width, x1:x2, :] = 255
+        after[y2-line_width:y2, x1:x2, :] = 255
+        after[y1:y2, x1:x1+line_width, :] = 255
+        after[y1:y2, x2-line_width:x2, :] = 255
     after = Image.fromarray(after)
     
     plt.imshow(after)
