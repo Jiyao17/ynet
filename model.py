@@ -173,6 +173,50 @@ class FPN(nn.Module):
         return c15, c18, c21
 
 
+class FCOSFPN(nn.Module):
+    """
+    YOLO-like feature pyramid network
+    But all outputs have the same number of channels
+    """
+    def __init__(self, depth, width, ratio):
+        super(FCOSFPN, self).__init__()
+        self.depth = depth
+        self.width = width
+        self.ratio = ratio
+
+        # from batch*channels*20*20 to batch*channels*40*40
+        self.up1 = nn.Upsample(scale_factor=2)
+        self.c12 = C2f(width*8*(1+ratio), width*8, shortcut=False)
+        self.up2 = nn.Upsample(scale_factor=2)
+        self.c15 = C2f(width*12, width*8, shortcut=False)
+
+        self.pre16 = Conv(width*8, width*4, 3, 1, 1)
+        self.c16 = Conv(width*4, width*4, 3, 2, 1)
+        self.c18 = C2f(width*12, width*8, n=depth, shortcut=False)
+
+        self.c19 = Conv(width*8, width*8, 3, 2, 1)
+        self.c21 = C2f(width*8*(1+ratio), width*8, n=depth, shortcut=False)
+
+    def forward(self, c4, c6, sppf) -> 'tuple[torch.Tensor]':
+        up1 = self.up1(sppf)
+        cat11 = torch.cat((up1, c6), dim=1)
+        c12 = self.c12(cat11)
+        up2 = self.up2(c12)
+        cat14 = torch.cat((up2, c4), dim=1)
+        c15 = self.c15(cat14)
+
+        pre16 = self.pre16(c15)
+        c16 = self.c16(pre16)
+        cat17 = torch.cat((c16, c12), dim=1)
+        c18 = self.c18(cat17)
+        c19 = self.c19(c18)
+        cat20 = torch.cat((c19, sppf), dim=1)
+        c21 = self.c21(cat20)
+
+        return c15, c18, c21
+
+
+
 class ConvFusion(nn.Module):
     # Convolutional fusion
     def __init__(self, c_in, c_out, k=3, s=2, p=1):
@@ -215,6 +259,32 @@ class FusionPlant(nn.Module):
         return c4, c6, sppf
 
 
+class FCOSFusionPlant(nn.Module):
+    # fuse two backbone feature maps
+    def __init__(self, depth, width, ratio):
+        super(FCOSFusionPlant, self).__init__()
+        self.depth = depth
+        self.width = width
+        self.ratio = ratio
+
+        # self.conv4 = Conv(width*4*2, width*4, 3, 1, 1)
+        self.conv4 = ConvFusion(width*4*2, width*8, 3, 1, 1)
+        # self.conv6 = Conv(width*8*2, width*8, 3, 1, 1)
+        self.conv6 = ConvFusion(width*8*2, width*8, 3, 1, 1)
+        # self.sppf9 = Conv(width*8*ratio*2, width*8*ratio, 3, 1, 1)
+        self.sppf9 = ConvFusion(width*8*ratio*2, width*8, 3, 1, 1)
+
+    def forward(self, c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2) -> torch.Tensor:
+        # c4 = torch.cat([c4_1, c4_2], dim=1)
+        c4 = self.conv4(c4_1, c4_2)
+        # c6 = torch.cat([c6_1, c6_2], dim=1)
+        c6 = self.conv6(c6_1, c6_2)
+        # sppf = torch.cat([sppf_1, sppf_2], dim=1)
+        sppf = self.sppf9(sppf_1, sppf_2)
+
+        return c4, c6, sppf
+
+
 class Detect(nn.Module):
     # YOLOv8-like detector
     def __init__(self, channels, num_classes, reg_max=8, num_convs=2):
@@ -239,7 +309,7 @@ class Detect(nn.Module):
         boxes = self.regressor(x)
 
         return classes, boxes
-    
+
 
 class Head(nn.Module):
     # YOLO-like head
@@ -262,6 +332,38 @@ class Head(nn.Module):
         cls2, ctr2, bbox2 = self.detector2(c18)
         cls3, ctr3, bbox3 = self.detector3(c21)
         return cls1, ctr1, bbox1, cls2, ctr2, bbox2, cls3, ctr3, bbox3
+
+
+class FCOSBackbone(nn.Module):
+    def __init__(self, depth=1, width=16, ratio=2):
+        super(FCOSBackbone, self).__init__()
+        self.depth = depth
+        self.width = width
+        self.ratio = ratio
+
+        self.out_channels = width * 8
+
+        self.backbone1 = Backbone(depth, width, ratio)
+        # self.backbone2 = Backbone(depth, width, ratio)
+        self.backbone2 = self.backbone1
+
+        self.fusor = FusionPlant(depth, width, ratio)
+
+        self.fpn = FCOSFPN(depth, width, ratio)
+
+
+    def forward(self, x) -> 'tuple[torch.Tensor]':
+        c4_1, c6_1, sppf_1 = self.backbone1(x[0])
+        c4_2, c6_2, sppf_2 = self.backbone2(x[1])
+        c4, c6, sppf = self.fusor(c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2)
+        c15, c18, c21 = self.fpn(c4, c6, sppf)
+        features = OrderedDict([
+            ("0", c15),
+            ("1", c18),
+            ("2", c21),
+        ])
+        # features = OrderedDict([("0", features)])
+        return features
 
 
 class YNet(nn.Module):
@@ -366,8 +468,6 @@ class YOLOLoss():
         return loss
 
 
-
-
 class TinyBackbone(nn.Module):
     """
     Accept two images as input, output a feature map
@@ -383,14 +483,17 @@ class TinyBackbone(nn.Module):
         self.extractor1 = nn.Sequential(
             # 3*640*640 -> 16*320*320
             Conv(3, 16, 3, 2, 1),
-            # 16*320*320 -> 32*160*160
+            # 16*320*320 -> 64*160*160
             Conv(16, 32, 3, 2, 1),
             # 32*160*160 -> 64*80*80
             Conv(32, 64, 3, 2, 1),
         )
         self.extractor2 = nn.Sequential(
+            # 3*640*640 -> 16*320*320
             Conv(3, 16, 3, 2, 1),
+            # 16*320*320 -> 64*160*160
             Conv(16, 32, 3, 2, 1),
+            # 32*160*160 -> 64*80*80
             Conv(32, 64, 3, 2, 1),
         )
 
@@ -547,8 +650,8 @@ class FCOS(nn.Module):
         backbone: nn.Module,
         num_classes: int,
         # transform parameters
-        min_size: int = 800,
-        max_size: int = 1333,
+        min_size: int = 640,
+        max_size: int = 1920,
         image_mean: Optional[List[float]] = None,
         image_std: Optional[List[float]] = None,
         # Anchor parameters
@@ -586,7 +689,9 @@ class FCOS(nn.Module):
             )
 
         if head is None:
-            head = FCOSHead(backbone.out_channels, anchor_generator.num_anchors_per_location()[0], num_classes)
+            head = FCOSHead(backbone.out_channels, anchor_generator.num_anchors_per_location()[0], num_classes,
+                # num_convs=2,
+                )
         self.head = head
 
         self.box_coder = det_utils.BoxLinearCoder(normalize_by_size=True)
@@ -791,7 +896,7 @@ class FCOS(nn.Module):
                     )
 
         # get the features from the backbone
-        features = self.backbone(before_images.tensors, images.tensors)
+        features = self.backbone([before_images.tensors, images.tensors])
         if isinstance(features, torch.Tensor):
             features = OrderedDict([("0", features)])
 

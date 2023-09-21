@@ -19,7 +19,7 @@ import matplotlib.pyplot as plt
 
 from model import Conv, ConvFusion
 from utils.dataset import LBIDRawDataset, LBIDTensorDataset, TensorDataset, collate_fn
-from utils.utils import plot_box_on_img
+from utils.utils import plot_boxes_on_img
 
 
 def test():
@@ -73,7 +73,7 @@ def test():
 
                 img = x2[i].permute(1, 2, 0).numpy()
                 img *= 255
-                img = plot_box_on_img(img, boxes)
+                img = plot_boxes_on_img(img, boxes)
                 img = Image.fromarray(img.astype(np.uint8))
                 img.show()
     

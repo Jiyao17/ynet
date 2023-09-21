@@ -4,7 +4,7 @@ import numpy as np
 from PIL import Image
 
 
-def plot_box_on_img(
+def plot_boxes_on_img(
         img: np.ndarray,
         boxes: 'list[tuple[int, int, int, int]]',
         color=(255, 255, 255),
