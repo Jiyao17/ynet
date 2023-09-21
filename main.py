@@ -6,7 +6,7 @@ import torchvision
 from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Resize
-from torchvision.models.detection import fcos_resnet50_fpn, FCOS_ResNet50_FPN_Weights
+from torchvision.models import detection
 
 import numpy as np
 from PIL import Image
@@ -15,158 +15,10 @@ import matplotlib.pyplot as plt
 
 from utils.dataset import LBIDRawDataset, LBIDTensorDataset, TensorDataset, collate_fn
 from utils.utils import plot_boxes_on_img
-from model import FCOS, TinyBackbone, FCOSBackbone
+from model import FCOS, YNetBackbone, FCOSBackbone
 
 
-def train(
-        model: FCOS, 
-        trainloader: DataLoader, 
-        optimizer: torch.optim.Optimizer,
-        device: str='cuda',
-        save_file: str=None,
-        ):
-    loss = 0
-    train_num = 0
-    model.train()
-    model.to(device)
-    loop = tqdm.tqdm(trainloader, total=len(trainloader))
-    for i, ((x1, x2), targets) in enumerate(loop):
-        x1 = x1.to(device)
-        x2 = x2.to(device)
-        targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-        # losses = model([x1, x2], targets)
-        losses = model(x2, targets)
-
-        optimizer.zero_grad()
-        losses: Tensor = sum(losses.values())
-        losses.backward()
-        optimizer.step()
-        
-        loss += losses.item()
-        train_num += len(x1)
-
-        loop.set_description(f'loss: {loss / train_num}')
-
-    if save_file is not None:
-        torch.save(model.state_dict(), save_file)
-
-    return loss / train_num
-
-def test(
-    model: FCOS,
-    testloader: DataLoader, 
-    device: str='cuda',
-    ):
-    def multi_label_match(labels: Tensor, labels_gt: Tensor):
-        labels: list = labels.cpu().numpy().tolist()
-        labels_gt: list = labels_gt.cpu().numpy().tolist()
-
-        obj_num = len(labels_gt)
-        if labels_gt[0] == 0:
-            if labels[0] == 0:
-                return 1, 0
-
-        predicted = 0
-        recalled = 0
-
-        for label in labels:
-            if label in labels_gt:
-                predicted += 1
-                if label != 0:
-                    recalled += 1
-
-                labels_gt.remove(label)
-
-        return total_correct
-    
-    model.eval()
-    model.to(device)
-    correct = 0
-    total_pred = 0
-    total_target = 0
-    with torch.no_grad():
-        for i, ((x1, x2), targets) in enumerate(testloader):
-            x1 = x1.to(device)
-            x2 = x2.to(device)
-            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-            # detections = model([x1, x2])
-            detections = model(x2)
-            for j, detection in enumerate(detections):
-                detection = detections[0]
-                boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
-                # idxes = nms(boxes, scores, 0.5)
-                # boxes = detection['boxes'][idxes]
-                
-                # remove background
-                # boxes = boxes[labels != 0]
-                # labels = labels[labels != 0]
-                # scores = scores[labels != 0]
-
-                labels_gt = targets[j]['labels']
-                boxes_gt = targets[j]['boxes']
-
-                if len(labels) == 0:
-                    labels = torch.tensor([0])
-
-                predicted, recalled = multi_label_match(labels, labels_gt)
-                total_pred += len(labels)
-                total_target += len(labels_gt)
-                # iou = torchvision.ops.box_iou(boxes, boxes_gt)
-
-    return correct / total_pred, correct / total_target
-                
-def plot_result(
-    model: FCOS,
-    testloader: DataLoader,
-    device: str='cuda',
-    save_dir: str=None
-    ):
-    model.eval()
-    model.to(device)
-    count = 0
-    max_num = 16
-    with torch.no_grad():
-        for i, ((x1, x2), targets) in enumerate(testloader):
-            x1 = x1.to(device)
-            x2 = x2.to(device)
-            targets = [{k: v.to(device) for k, v in t.items()} for t in targets]
-
-            # detections = model([x1, x2])
-            detections = model(x2)
-
-
-            detection = detections[0]
-            boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
-            img0 = x1[0].permute(1, 2, 0).cpu().numpy()
-            img = x2[0].permute(1, 2, 0).cpu().numpy()
-            img *= 255
-            img = plot_boxes_on_img(img, boxes)
-            img = Image.fromarray(img.astype(np.uint8))
-            
-            if save_dir is not None:
-                plt.subplot(1, 2, 1)
-                plt.imshow(img0)
-                plt.subplot(1, 2, 2)
-                plt.imshow(img)
-                labels = [ LBIDRawDataset.labels[i] for i in labels ]
-                if len(labels) == 0:
-                    labels = ['nothing']
-                if len(labels) == 2:
-                    if labels[0] == 'nothing' and labels[1] == 'nothing':
-                        labels = ['nothing']
-                labels_gt = [ LBIDRawDataset.labels[i] for i in targets[0]['labels'] ]
-
-                plt.title(f'pred: {labels}, gt: {labels_gt}')
-                plt.savefig(save_dir + str(count) + '.png')
-
-                count += 1
-                if count >= max_num:
-                    return
-
-
-class LBID():
+class YNetTask():
     def __init__(self, 
         dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
         train_nums={'nothing': 180, 'other': 800},
@@ -201,16 +53,16 @@ class LBID():
         self.labels = LBIDRawDataset.labels
 
         self.model = FCOS(
-            backbone=FCOSBackbone(1, 16, 2),
+            backbone=YNetBackbone(1, 16, 2),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),
                 aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
             ),
-            score_thresh=0.165,
-            nms_thresh=0.01,
+            score_thresh=0.2,
+            nms_thresh=1e-5,
             detections_per_img=2,
-            topk_candidates=64,
+            topk_candidates=32,
         )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -245,11 +97,14 @@ class LBID():
 
         return trainloader, testloader
 
-    def load_model(self, saved_model='./checkpoint/checkpoint.pth'):
-        self.model.load_state_dict(torch.load(saved_model))
+    def load_model(self, filename='./checkpoint/checkpoint.pth'):
+        self.model.load_state_dict(torch.load(filename))
         self.model.to(self.device)
 
-    def train(self, save_file: str=None):
+    def save_model(self, filename='./checkpoint/checkpoint.pth'):
+        torch.save(self.model.state_dict(), filename)
+
+    def train(self):
         loss = 0
         train_num = 0
         self.model.train()
@@ -273,9 +128,6 @@ class LBID():
 
             loop.set_description(f'loss: {loss / train_num}')
 
-        if save_file is not None:
-            torch.save(self.model.state_dict(), save_file)
-
         return loss / train_num
 
     def test(self):
@@ -297,9 +149,9 @@ class LBID():
 
         self.model.eval()
         self.model.to(self.device)
-        all_pred_vec = torch.zeros(len(self.labels))
-        all_target_vec = torch.zeros(len(self.labels))
-        all_match_vec = torch.zeros(len(self.labels))
+        pred_vec = torch.zeros(len(self.labels))
+        target_vec = torch.zeros(len(self.labels))
+        match_vec = torch.zeros(len(self.labels))
         with torch.no_grad():
             for i, ((x1, x2), targets) in enumerate(self.testloader):
                 x1 = x1.to(self.device)
@@ -311,28 +163,12 @@ class LBID():
                     boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
                     labels_gt = targets[j]['labels']
 
-                    pred_vec, target_vec, match_vec = labels_to_vec(labels, labels_gt)
-                    all_pred_vec += pred_vec
-                    all_target_vec += target_vec
-                    all_match_vec += match_vec
+                    pred, target, match = labels_to_vec(labels, labels_gt)
+                    pred_vec += pred
+                    target_vec += target
+                    match_vec += match
 
-        nothing_match = all_match_vec[0]
-        nothing_pred = all_pred_vec[0]
-        items_pred = all_pred_vec[1:]
-        items_target = all_target_vec[1:]
-        items_match = all_match_vec[1:]
-        if nothing_match == 0:
-            sensitivity = torch.inf
-        else:
-            sensitivity = nothing_match / nothing_pred
-        # calc mAP, set to 0 if no item detected
-        AP = [ torch.tensor(0.0) if items_pred[i] == 0 else items_match[i] / items_pred[i] for i in range(len(items_pred)) ]
-        mAP = torch.mean(torch.stack(AP))
-        # calc mAR, set to 0 if no item detected
-        AR = [ torch.tensor(0.0) if items_target[i] == 0 else items_match[i] / items_target[i] for i in range(len(items_target)) ]
-        mAR = torch.mean(torch.stack(AR))
-
-        return sensitivity, mAP, mAR
+        return pred_vec, target_vec, match_vec
 
     def plot_result(self, save_dir: str=None):
         self.model.eval()
@@ -375,33 +211,187 @@ class LBID():
                         return
 
 
+class FCOSTask(YNetTask):
+    def __init__(self,
+        dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
+        train_nums={ 'nothing': 180,'other': 800 },
+        test_nums={ 'nothing': 45,'other': 200 }, 
+        expand=(2, 2),
+        batch_size=16, 
+        num_workers=7, 
+        lr=0.0001,
+        device='cuda') -> None:
+        super().__init__(dataset_dir, train_nums, test_nums, expand,
+            batch_size, num_workers, lr, device)
+        
+        self.model = detection.FCOS(
+            backbone=FCOSBackbone(1, 16, 2),
+            num_classes=len(self.labels),
+            anchor_generator=AnchorGenerator(
+                sizes=((8,), (16,), (32,),),
+                aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
+            ),
+            score_thresh=0.2,
+            nms_thresh=0.01,
+            detections_per_img=2,
+            topk_candidates=64,
+        )
+        self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
+
+    def train(self):
+        loss = 0
+        train_num = 0
+        self.model.train()
+        self.model.to(self.device)
+        loop = tqdm.tqdm(self.trainloader, total=len(self.trainloader))
+        for i, ((x1, x2), targets) in enumerate(loop):
+            x1 = x1.to(self.device)
+            x2 = x2.to(self.device)
+            targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+
+            # losses = self.model([x1, x2], targets)
+            losses = self.model(x2, targets)
+
+            self.optimizer.zero_grad()
+            losses: Tensor = sum(losses.values())
+            losses.backward()
+            self.optimizer.step()
+            
+            loss += losses.item()
+            train_num += len(x1)
+
+            loop.set_description(f'loss: {loss / train_num}')
+
+        return loss / train_num
+
+    def test(self):
+        def labels_to_vec(labels: Tensor, labels_gt: Tensor):
+            labels: list = labels.cpu().numpy().tolist()
+            if len(labels) == 0:
+                labels = [0]
+            labels_gt: list = labels_gt.cpu().numpy().tolist()
+
+            pred_vec = torch.zeros(len(self.labels))
+            target_vec = torch.zeros(len(self.labels))
+            for label in labels:
+                pred_vec[label] += 1
+            for label in labels_gt:
+                target_vec[label] += 1
+            match_vec = torch.min(pred_vec, target_vec)
+
+            return pred_vec, target_vec, match_vec
+
+        self.model.eval()
+        self.model.to(self.device)
+        all_pred_vec = torch.zeros(len(self.labels))
+        all_target_vec = torch.zeros(len(self.labels))
+        all_match_vec = torch.zeros(len(self.labels))
+        with torch.no_grad():
+            for i, ((x1, x2), targets) in enumerate(self.testloader):
+                x1 = x1.to(self.device)
+                x2 = x2.to(self.device)
+                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+
+                # detections = self.model([x1, x2])
+                detections = self.model(x2)
+                for j, detection in enumerate(detections):
+                    boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
+                    labels_gt = targets[j]['labels']
+
+                    pred_vec, target_vec, match_vec = labels_to_vec(labels, labels_gt)
+                    all_pred_vec += pred_vec
+                    all_target_vec += target_vec
+                    all_match_vec += match_vec
+
+        return all_pred_vec, all_target_vec, all_match_vec
+
+    def plot_result(self, save_dir: str=None):
+        self.model.eval()
+        self.model.to(self.device)
+        count = 0
+        max_num = 32
+        with torch.no_grad():
+            for i, ((x1, x2), targets) in enumerate(self.testloader):
+                x1 = x1.to(self.device)
+                x2 = x2.to(self.device)
+                targets = [{k: v.to(self.device) for k, v in t.items()} for t in targets]
+
+                # detections = self.model([x1, x2])
+                detections = self.model(x2)
+                detection = detections[0]
+                boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
+                img0 = x1[0].permute(1, 2, 0).cpu().numpy()
+                img = x2[0].permute(1, 2, 0).cpu().numpy()
+                img *= 255
+                img = plot_boxes_on_img(img, boxes)
+                img = Image.fromarray(img.astype(np.uint8))
+                
+                if save_dir is not None:
+                    plt.subplot(1, 2, 1)
+                    plt.imshow(img0)
+                    plt.subplot(1, 2, 2)
+                    plt.imshow(img)
+                    labels = [ LBIDRawDataset.labels[i] for i in labels ]
+                    if len(labels) == 0:
+                        labels = ['nothing']
+                    if len(labels) == 2:
+                        if labels[0] == 'nothing' and labels[1] == 'nothing':
+                            labels = ['nothing']
+                    labels_gt = [ LBIDRawDataset.labels[i] for i in targets[0]['labels'] ]
+
+                    plt.title(f'pred: {labels}, gt: {labels_gt}')
+                    plt.savefig(save_dir + str(count) + '.png')
+
+                    count += 1
+                    if count >= max_num:
+                        return
+
+
+def stats(pred: Tensor, target: Tensor, match: Tensor):
+    AP, AR = match / pred, match / target
+    mAP, mAR = torch.mean(AP[1:]), torch.mean(AR[1:])
+    ap, ar = torch.sum(match[1:]) / torch.sum(pred[1:]), torch.sum(match[1:]) / torch.sum(target[1:])
+
+    # convert to basic type
+    AP = AP.cpu().numpy().tolist()
+    AR = AR.cpu().numpy().tolist()
+    mAP = mAP.cpu().numpy().tolist()
+    mAR = mAR.cpu().numpy().tolist()
+    ap = ap.cpu().numpy().tolist()
+    ar = ar.cpu().numpy().tolist()
+
+    return AP, AR, mAP, mAR, ap, ar
 
 
 
     
 if __name__ == '__main__':
-    # torch.random.manual_seed(0)
-    # np.random.seed(0)
+    torch.random.manual_seed(0)
+    np.random.seed(0)
     
     TRAIN_MODE = True
-    LOAD_MODEL = False
-    saved_model='./checkpoint/checkpoint.pth'
+    LOAD_MODEL = True
+    saved_model='./checkpoint/checkpoint0.pth'
+    # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
-    # train_nums={'nothing': 180, 'other': 600}
-    # test_nums={'nothing': 45, 'other': 200}
+    # train_nums={'nothing': 40, 'other': 40}
+    # test_nums={'nothing': 10, 'other': 10}
     train_nums={'nothing': 180, 'other': 800}
     test_nums={'nothing': 45, 'other': 200}
 
-    expand=(5, 3)
+    expand=(5, 5)
 
     EPOCH=100
-    BATCH_SIZE=16
-    LR=0.0001
+    if TRAIN_MODE:
+        BATCH_SIZE=24
+    else:
+        BATCH_SIZE=64
+    LR=0.00001
     NUM_WORKERS=7
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = LBID(
+    lbid = YNetTask(
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,
@@ -415,19 +405,30 @@ if __name__ == '__main__':
     if TRAIN_MODE:
         if LOAD_MODEL:
             lbid.load_model(saved_model)
+
         for epoch in range(EPOCH):
-            train_loss = lbid.train(save_file=saved_model)
-            print(f'epoch: {epoch}, train_loss: {train_loss:.2f}', end=' ')
+            train_loss = lbid.train()
+            print(f'epoch: {epoch}, train_loss: {train_loss:.5f}', end=' ')
             
-            sensitivity, mAP, mAR = lbid.test()
-            print(f'sensitivity: {sensitivity}, mAP: {mAP}, mAR: {mAR}')
-            print('model score: {:.2f}'.format(mAP + mAR))
+            pred, target, match = lbid.test()
+            
+            AP, AR, mAP, mAR, ap, ar = stats(pred, target, match)
+            print(f'AP: {AP}, AR: {AR}')
+            print(f'mAP: {mAP}, mAR: {mAR}, ap: {ap}, ar: {ar}')
+            print(f'model score: {mAP + mAR}, {ap + ar}')
+
+            lbid.save_model(f'./checkpoint/checkpoint{epoch}.pth')
+
     else:
         assert LOAD_MODEL, 'LOAD_MODEL must be True when TRAIN_MODE is False'
         assert saved_model is not None, 'saved_model must be specified when TRAIN_MODE is False'
+        
         lbid.load_model(saved_model)
-        sensitivity, mAP, mAR = lbid.test()
-        print('sensitivity: {:.2f}, mAP: {:.2f}, mAR: {:.2f}'.format(sensitivity, mAP, mAR))
-        print('model score: {:.2f}'.format(mAP + mAR))
+        pred, target, match = lbid.test()
+
+        AP, AR, mAP, mAR, ap, ar = stats(pred, target, match)
+        print(f'AP: {AP}, AR: {AR}')
+        print(f'mAP: {mAP}, mAR: {mAR}, ap: {ap}, ar: {ar}')
+        print(f'model score: {mAP + mAR}, {ap + ar}')
 
         lbid.plot_result('./checkpoint/')

@@ -81,8 +81,8 @@ class LBIDRawDataset():
         nothing_items = [ (item[0], [((0, 0, 1920, 1080), 0)]) for item in nothing_items ]
         other_items = [ item for item in self.items if item[1] != [] ]
 
-        print("nothing num:", len(nothing_items))
-        print("other num:", len(other_items))
+        # print("nothing num:", len(nothing_items))
+        # print("other num:", len(other_items))
 
         # split nothing and other items
         train_nothing = nothing_items[:train['nothing']]
@@ -145,9 +145,6 @@ class LBIDTensorDataset(Dataset):
         # read jpg image and convert to tensor
         before_img = Image.open(before_file)
         after_img = Image.open(after_file)
-        assert before_img.size == after_img.size, "before and after image size not match"
-        before_img_np = np.array(before_img)
-        assert before_img_np.shape == (1080, 1920, 3)
         if self.transform is not None:
             before_img = self.transform(before_img)
             after_img = self.transform(after_img)

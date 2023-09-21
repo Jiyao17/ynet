@@ -334,9 +334,9 @@ class Head(nn.Module):
         return cls1, ctr1, bbox1, cls2, ctr2, bbox2, cls3, ctr3, bbox3
 
 
-class FCOSBackbone(nn.Module):
+class YNetBackbone(nn.Module):
     def __init__(self, depth=1, width=16, ratio=2):
-        super(FCOSBackbone, self).__init__()
+        super(YNetBackbone, self).__init__()
         self.depth = depth
         self.width = width
         self.ratio = ratio
@@ -364,6 +364,31 @@ class FCOSBackbone(nn.Module):
         ])
         # features = OrderedDict([("0", features)])
         return features
+
+
+class FCOSBackbone(nn.Module):
+    # YOLO-like backbone
+    def __init__(self, depth, width, ratio):
+        super(FCOSBackbone, self).__init__()
+        self.depth = depth
+        self.width = width
+        self.ratio = ratio
+
+        self.out_channels = width * 8
+
+        self.backbone = Backbone(depth, width, ratio)
+        self.fpn = FCOSFPN(depth, width, ratio)
+
+    def forward(self, x) -> 'tuple[torch.Tensor]':
+        c4, c6, sppf = self.backbone(x)
+        c15, c18, c21 = self.fpn(c4, c6, sppf)
+        features = OrderedDict([
+            ("0", c15),
+            ("1", c18),
+            ("2", c21),
+        ])
+        return features
+
 
 
 class YNet(nn.Module):
