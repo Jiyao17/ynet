@@ -52,7 +52,7 @@ class YNetTask():
         self.labels = LBIDRawDataset.labels
 
         self.model = FCOS(
-            backbone=YNetBackbone(1, 16, 2),
+            backbone=YNetBackbone(1, 32, 2),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
@@ -223,7 +223,7 @@ class FCOSTask(YNetTask):
             batch_size, num_workers, lr, device)
         
         self.model = detection.FCOS(
-            backbone=FCOSBackbone(1, 16, 2),
+            backbone=FCOSBackbone(2, 32, 2),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),
@@ -376,19 +376,19 @@ if __name__ == '__main__':
     dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
-    train_nums={'nothing': 180, 'other': 800}
-    test_nums={'nothing': 45, 'other': 200}
+    train_nums={'nothing': 500, 'other': 800}
+    test_nums={'nothing': 100, 'other': 200}
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=32
+        BATCH_SIZE=8
     else:
         BATCH_SIZE=64
     LR=0.0001
-    NUM_WORKERS=7
+    NUM_WORKERS=4
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = FCOSTask(
+    lbid = YNetTask(
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,
