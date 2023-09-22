@@ -193,7 +193,7 @@ class FCOSFPN(nn.Module):
         self.c18 = C2f(round(768*width), round(512*width), n=round(depth*3), shortcut=False)
 
         self.c19 = Conv(round(512*width), round(512*width), 3, 2, 1)
-        self.c21 = C2f(round(1024*width), round(512*width), n=round(depth*3), shortcut=False)
+        self.c21 = C2f(round(512*width*(1+ratio)), round(512*width), n=round(depth*3), shortcut=False)
 
     def forward(self, c4, c6, sppf) -> 'tuple[torch.Tensor]':
         up1 = self.up1(sppf)
@@ -331,7 +331,7 @@ class YNetBackbone(nn.Module):
         self.depth = depth
         self.width = width
         self.ratio = ratio
-        self.out_channels = 512 * width
+        self.out_channels = round(512 * width)
 
         self.backbone1 = Backbone(depth, width, ratio)
         # self.backbone2 = Backbone(depth, width, ratio)

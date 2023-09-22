@@ -373,7 +373,7 @@ if __name__ == '__main__':
     saved_model='./checkpoint/checkpoint2.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
-    dataset_dir='/ynet/dataset/raw/'
+    dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
     train_nums={'nothing': 500, 'other': 800}
@@ -381,11 +381,11 @@ if __name__ == '__main__':
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=32
+        BATCH_SIZE=4
     else:
         BATCH_SIZE=64
     LR=0.0001
-    NUM_WORKERS=16
+    NUM_WORKERS=1
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     lbid = YNetTask(
