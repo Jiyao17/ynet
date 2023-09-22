@@ -55,8 +55,8 @@ class YNetTask():
             backbone=YNetBackbone(1, 16, 2),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
-                sizes=((8,), (16,), (32,),),
-                aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
+                sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
+                aspect_ratios=((1.0,),) * 3, # equal to num_anchors_per_location
             ),
             score_thresh=0.2,
             nms_thresh=1e-5,
@@ -348,8 +348,8 @@ class FCOSTask(YNetTask):
 
 def stats(pred: Tensor, target: Tensor, match: Tensor):
     AP, AR = match / pred, match / target
-    mAP, mAR = torch.mean(AP[1:]), torch.mean(AR[1:])
-    ap, ar = torch.sum(match[1:]) / torch.sum(pred[1:]), torch.sum(match[1:]) / torch.sum(target[1:])
+    mAP, mAR = torch.mean(AP), torch.mean(AR)
+    ap, ar = torch.sum(match) / torch.sum(pred), torch.sum(match) / torch.sum(target)
 
     # convert to basic type
     AP = AP.cpu().numpy().tolist()

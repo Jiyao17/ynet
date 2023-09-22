@@ -29,14 +29,14 @@ TensorDataset = List[TensorDataEntry]
 
 
 class LBIDRawDataset():
-    labels = ['nothing', 'airpod', 'phone', 'bag']
+    labels = ['airpod', 'phone', 'bag']
 
     def __init__(self, ds_dir: str,) -> None:
         super().__init__()
         self.dir = ds_dir
         self.image_dir = ds_dir + '/images/'
 
-        self.stats = np.zeros(len(LBIDRawDataset.labels), dtype=np.int32)
+        self.stats = np.zeros(len(LBIDRawDataset.labels)+1, dtype=np.int32)
 
         self.train_items: RawDataset = ([], [])
         self.test_items: RawDataset = ([], [])
@@ -73,8 +73,9 @@ class LBIDRawDataset():
         imgs = os.listdir(self.image_dir)
         imgs = [ self.image_dir + img for img in imgs if img.startswith('nothing') ]
         # danger: 1920, 1080 is hard coded
-        nothing_items = [ (img, [((0, 0, 1920, 1080), 0)]) for img in imgs ]
-        self.stats[0] += len(nothing_items)
+        # nothing_items = [ (img, [((0, 0, 1920, 1080), 0)]) for img in imgs ]
+        nothing_items = [ (img, []) for img in imgs ]
+        self.stats[-1] += len(nothing_items)
 
         print("stat:", self.stats)
         self.items = (nothing_items, other_items)
@@ -129,8 +130,11 @@ class LBIDTensorDataset(Dataset):
 
         after_boxes = [ target[0] for target in after_targets ]
         after_labels = [ target[1] for target in after_targets ]
-        after_boxes = torch.as_tensor(after_boxes, dtype=torch.int64)
-        after_labels = torch.as_tensor(after_labels, dtype=torch.int64)
+        if len(after_boxes) == 0:
+            after_boxes = torch.zeros((0, 4), dtype=torch.int32)
+        else:
+            after_boxes = torch.as_tensor(after_boxes, dtype=torch.int32)
+        after_labels = torch.as_tensor(after_labels, dtype=torch.int32)
         
         return (before_img, after_img), {'boxes': after_boxes, 'labels': after_labels}
     
