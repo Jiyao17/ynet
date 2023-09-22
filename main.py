@@ -369,7 +369,7 @@ if __name__ == '__main__':
     np.random.seed(0)
     
     TRAIN_MODE = True
-    LOAD_MODEL = True
+    LOAD_MODEL = False
     saved_model='./checkpoint/checkpoint11.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
@@ -384,7 +384,7 @@ if __name__ == '__main__':
         BATCH_SIZE=32
     else:
         BATCH_SIZE=64
-    LR=0.00001
+    LR=0.0001
     NUM_WORKERS=7
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 

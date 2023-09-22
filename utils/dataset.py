@@ -29,7 +29,7 @@ TensorDataset = List[TensorDataEntry]
 
 
 class LBIDRawDataset():
-    labels = ['nothing', 'airpod', 'phone', 'bag', ]
+    labels = ['nothing', 'airpod', 'phone', ]
 
     def __init__(self, ds_dir: str,) -> None:
         super().__init__()
@@ -54,14 +54,18 @@ class LBIDRawDataset():
 
                 gts = []
                 raw_labels: list[dict] = item['label']
+                undefined = False
                 for raw_label in raw_labels:
                     x, y, w, h, _, classes, ow, oh = list(raw_label.values())
                     x, y, w, h = int(x*ow/100), int(y*oh/100), int(w*ow/100), int(h*oh/100)
                     x1, y1, x2, y2 = x, y, x+w, y+h
-                    label: Label = LBIDRawDataset.labels.index(classes[0])
-                    gts.append(((x1, y1, x2, y2), label))
-
-                other_items.append((filename, gts))
+                    if classes[0] in LBIDRawDataset.labels:
+                        label = LBIDRawDataset.labels.index(classes[0])
+                        gts.append(((x1, y1, x2, y2), label))
+                    else:
+                        undefined = True
+                if not undefined:
+                    other_items.append((filename, gts))
 
         # parse nothing data
         imgs = os.listdir(self.image_dir)
