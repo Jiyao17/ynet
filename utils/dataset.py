@@ -29,16 +29,19 @@ TensorDataset = List[TensorDataEntry]
 
 
 class LBIDRawDataset():
-    labels = ['nothing', 'airpod', 'phone', ]
+    labels = ['nothing', 'airpod', 'phone', 'bag']
 
     def __init__(self, ds_dir: str,) -> None:
         super().__init__()
         self.dir = ds_dir
         self.image_dir = ds_dir + '/images/'
 
+        self.stats = np.zeros(len(LBIDRawDataset.labels), dtype=np.int32)
+
         self.train_items: RawDataset = ([], [])
         self.test_items: RawDataset = ([], [])
         self.items: RawDataset = self.parse_organize()
+
 
     def parse_organize(self,) -> RawDataset:
         # parse lebeled data
@@ -54,25 +57,26 @@ class LBIDRawDataset():
 
                 gts = []
                 raw_labels: list[dict] = item['label']
-                undefined = False
                 for raw_label in raw_labels:
                     x, y, w, h, _, classes, ow, oh = list(raw_label.values())
                     x, y, w, h = int(x*ow/100), int(y*oh/100), int(w*ow/100), int(h*oh/100)
                     x1, y1, x2, y2 = x, y, x+w, y+h
-                    if classes[0] in LBIDRawDataset.labels:
-                        label = LBIDRawDataset.labels.index(classes[0])
-                        gts.append(((x1, y1, x2, y2), label))
-                    else:
-                        undefined = True
-                if not undefined:
-                    other_items.append((filename, gts))
+
+                    label = LBIDRawDataset.labels.index(classes[0])
+                    gts.append(((x1, y1, x2, y2), label))
+                    self.stats[label] += 1
+
+                other_items.append((filename, gts))
+
 
         # parse nothing data
         imgs = os.listdir(self.image_dir)
         imgs = [ self.image_dir + img for img in imgs if img.startswith('nothing') ]
         # danger: 1920, 1080 is hard coded
         nothing_items = [ (img, [((0, 0, 1920, 1080), 0)]) for img in imgs ]
+        self.stats[0] += len(nothing_items)
 
+        print("stat:", self.stats)
         self.items = (nothing_items, other_items)
         return self.items
 

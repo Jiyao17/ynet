@@ -370,7 +370,7 @@ if __name__ == '__main__':
     
     TRAIN_MODE = True
     LOAD_MODEL = False
-    saved_model='./checkpoint/checkpoint11.pth'
+    saved_model='./checkpoint/checkpoint2.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
