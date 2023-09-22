@@ -101,26 +101,26 @@ class Backbone(nn.Module):
 
         self.pre = nn.Sequential(
             # 3*640*640 -> w*320*320
-            Conv(3, width, 3, 2, 1),
+            Conv(3, round(64*width), 3, 2, 1),
             # w*320*320 -> 2w*160*160
-            Conv(width, width*2, 3, 2, 1),
+            Conv(round(64*width), round(128*width), 3, 2, 1),
             # 2w*160*160 -> 2w*80*80
-            C2f(width*2, width*2, n=depth),
+            C2f(round(128*width), round(128*width), n=round(depth*3)),
             # 2w*80*80 -> 4w*40*40
-            Conv(width*2, width*4, 3, 2, 1),
+            Conv(round(128*width), round(256*width), 3, 2, 1),
         )
         # 4w*40*40 -> 4w*40*40
-        self.c4 = C2f(width*4, width*4, n=depth*2)
+        self.c4 = C2f(round(256*width), round(256*width), n=round(depth*6))
         # 4w*40*40 -> 8w*20*20
-        self.c5 = Conv(width*4, width*8, 3, 2, 1)
+        self.c5 = Conv(round(256*width), round(512*width), 3, 2, 1)
         # 8w*20*20 -> 8w*20*20
-        self.c6 = C2f(width*8, width*8, n=depth*2)
+        self.c6 = C2f(round(512*width), round(512*width), n=round(depth*6))
         # 8w*20*20 -> 8wr*20*20
-        self.c7 = Conv(width*8, width*8*ratio, 3, 2, 1)
+        self.c7 = Conv(round(512*width), round(512*width*ratio), 3, 2, 1)
         # 8wr*20*20 -> 8wr*20*20
-        self.c8 = C2f(width*8*ratio, width*8*ratio, n=depth)
+        self.c8 = C2f(round(512*width*ratio), round(512*width*ratio), n=round(depth*3))
         # 8wr*20*20 -> 8wr*20*20
-        self.c9 = SPPF(width*8*ratio, width*8*ratio)
+        self.c9 = SPPF(round(512*width*ratio), round(512*width*ratio))
 
 
     def forward(self, x) -> 'tuple[torch.Tensor]':
@@ -143,17 +143,16 @@ class FPN(nn.Module):
         self.width = width
         self.ratio = ratio
 
-        # from batch*channels*20*20 to batch*channels*40*40
         self.up1 = nn.Upsample(scale_factor=2)
-        self.c12 = C2f(width*8*(1+ratio), width*8, shortcut=False)
+        self.c12 = C2f(round(512*width*(1+ratio)), round(512*width), n=round(depth*3), shortcut=False)
         self.up2 = nn.Upsample(scale_factor=2)
-        self.c15 = C2f(width*12, width*4, shortcut=False)
+        self.c15 = C2f(round(768*width), round(256*width), n=round(depth*3), shortcut=False)
 
-        self.c16 = Conv(width*4, width*4, 3, 2, 1)
-        self.c18 = C2f(width*12, width*8, n=depth, shortcut=False)
+        self.c16 = Conv(round(256*width), round(256*width), 3, 2, 1)
+        self.c18 = C2f(round(768*width), round(512*width), n=round(depth*3), shortcut=False)
 
-        self.c19 = Conv(width*8, width*8, 3, 2, 1)
-        self.c21 = C2f(width*8*(1+ratio), width*8*ratio, n=depth, shortcut=False)
+        self.c19 = Conv(round(512*width), round(512*width), 3, 2, 1)
+        self.c21 = C2f(round(1024*width), round(512*width*ratio), n=round(depth*3), shortcut=False)
 
     def forward(self, c4, c6, sppf) -> 'tuple[torch.Tensor]':
         up1 = self.up1(sppf)
@@ -184,18 +183,17 @@ class FCOSFPN(nn.Module):
         self.width = width
         self.ratio = ratio
 
-        # from batch*channels*20*20 to batch*channels*40*40
         self.up1 = nn.Upsample(scale_factor=2)
-        self.c12 = C2f(width*8*(1+ratio), width*8, shortcut=False)
+        self.c12 = C2f(round(512*width*(1+ratio)), round(512*width), n=round(depth*3), shortcut=False)
         self.up2 = nn.Upsample(scale_factor=2)
-        self.c15 = C2f(width*12, width*8, shortcut=False)
+        self.c15 = C2f(round(768*width), round(512*width), n=round(depth*3), shortcut=False)
 
-        self.pre16 = Conv(width*8, width*4, 3, 1, 1)
-        self.c16 = Conv(width*4, width*4, 3, 2, 1)
-        self.c18 = C2f(width*12, width*8, n=depth, shortcut=False)
+        self.pre16 = Conv(round(512*width), round(256*width), 3, 1, 1)
+        self.c16 = Conv(round(256*width), round(256*width), 3, 2, 1)
+        self.c18 = C2f(round(768*width), round(512*width), n=round(depth*3), shortcut=False)
 
-        self.c19 = Conv(width*8, width*8, 3, 2, 1)
-        self.c21 = C2f(width*8*(1+ratio), width*8, n=depth, shortcut=False)
+        self.c19 = Conv(round(512*width), round(512*width), 3, 2, 1)
+        self.c21 = C2f(round(1024*width), round(512*width), n=round(depth*3), shortcut=False)
 
     def forward(self, c4, c6, sppf) -> 'tuple[torch.Tensor]':
         up1 = self.up1(sppf)
@@ -219,13 +217,9 @@ class FCOSFPN(nn.Module):
 
 class ConvFusion(nn.Module):
     # Convolutional fusion
-    def __init__(self, c_in, c_out, k=3, s=2, p=1):
+    def __init__(self, c_in, c_out, n=1):
         super(ConvFusion, self).__init__()
-        self.net = nn.Sequential(
-            nn.Conv2d(c_in, c_out, k, s, p),
-            nn.BatchNorm2d(c_out),
-            nn.SiLU(),
-        )
+        self.net = C2f(c_in, c_out, n, shortcut=False)
 
     def forward(self, x1, x2) -> torch.Tensor:
         x = torch.cat((x1, x2), dim=1)
@@ -241,12 +235,9 @@ class FusionPlant(nn.Module):
         self.width = width
         self.ratio = ratio
 
-        # self.conv4 = Conv(width*4*2, width*4, 3, 1, 1)
-        self.conv4 = ConvFusion(width*4*2, width*4, 3, 1, 1)
-        # self.conv6 = Conv(width*8*2, width*8, 3, 1, 1)
-        self.conv6 = ConvFusion(width*8*2, width*8, 3, 1, 1)
-        # self.sppf9 = Conv(width*8*ratio*2, width*8*ratio, 3, 1, 1)
-        self.sppf9 = ConvFusion(width*8*ratio*2, width*8*ratio, 3, 1, 1)
+        self.conv4 = ConvFusion(round(256*width*2), round(256*width))
+        self.conv6 = ConvFusion(round(512*width*2), round(512*width))
+        self.sppf9 = ConvFusion(round(512*width*ratio*2), round(512*width*ratio))
 
     def forward(self, c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2) -> torch.Tensor:
         # c4 = torch.cat([c4_1, c4_2], dim=1)
@@ -335,13 +326,12 @@ class Head(nn.Module):
 
 
 class YNetBackbone(nn.Module):
-    def __init__(self, depth=1, width=16, ratio=2):
+    def __init__(self, depth=0.67, width=0.75, ratio=1.5):
         super(YNetBackbone, self).__init__()
         self.depth = depth
         self.width = width
         self.ratio = ratio
-
-        self.out_channels = width * 8
+        self.out_channels = 512 * width
 
         self.backbone1 = Backbone(depth, width, ratio)
         # self.backbone2 = Backbone(depth, width, ratio)

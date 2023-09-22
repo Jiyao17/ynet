@@ -52,7 +52,7 @@ class YNetTask():
         self.labels = LBIDRawDataset.labels
 
         self.model = FCOS(
-            backbone=YNetBackbone(1, 32, 2),
+            backbone=YNetBackbone(0.67, 0.75, 1.5),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
@@ -373,7 +373,7 @@ if __name__ == '__main__':
     saved_model='./checkpoint/checkpoint2.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
-    dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
+    dataset_dir='/ynet/dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
     train_nums={'nothing': 500, 'other': 800}
@@ -381,11 +381,11 @@ if __name__ == '__main__':
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=8
+        BATCH_SIZE=32
     else:
         BATCH_SIZE=64
     LR=0.0001
-    NUM_WORKERS=4
+    NUM_WORKERS=16
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     lbid = YNetTask(
