@@ -19,8 +19,7 @@ Label = NewType('Label', int)
 DataEntry = Tuple[Filename, Tuple[BBox, Label]]
 # DataEntry = NewType('DataEntry', Tuple[Filename, BBox, Label])
 # RawDataset = NewType('RawDataset', List[Tuple[DataEntry, DataEntry]])
-RawDataset = List[Tuple[DataEntry, DataEntry]]
-
+RawDataset = Tuple[List[DataEntry], List[DataEntry]]
 # data entry for LBIDDataset
 # TensorDataEntry = NewType('TensorDataEntry', Tuple[torch.Tensor, torch.Tensor])
 TensorDataEntry = Tuple[torch.Tensor, torch.Tensor]
@@ -37,12 +36,15 @@ class LBIDRawDataset():
         self.dir = ds_dir
         self.image_dir = ds_dir + '/images/'
 
-        self.items: RawDataset = []
-        self.raw_items = self.parse_organize()
+        self.train_items: RawDataset = ([], [])
+        self.test_items: RawDataset = ([], [])
+        self.items: RawDataset = self.parse_organize()
 
     def parse_organize(self,) -> RawDataset:
         # parse lebeled data
         filename = self.dir + '/labels.json'
+        nothing_items: List[DataEntry] = []
+        other_items: List[DataEntry] = []
         with open(filename, 'r') as f:
             raw_items = json.load(f)
             for item in raw_items:
@@ -59,27 +61,26 @@ class LBIDRawDataset():
                     label: Label = LBIDRawDataset.labels.index(classes[0])
                     gts.append(((x1, y1, x2, y2), label))
 
-                self.items.append((filename, gts))
+                other_items.append((filename, gts))
 
         # parse nothing data
         imgs = os.listdir(self.image_dir)
         imgs = [ self.image_dir + img for img in imgs if img.startswith('nothing') ]
-        nothing_items = [ (img, []) for img in imgs ]
-        self.items += nothing_items
+        # danger: 1920, 1080 is hard coded
+        nothing_items = [ (img, [((0, 0, 1920, 1080), 0)]) for img in imgs ]
 
+        self.items = (nothing_items, other_items)
         return self.items
 
     def split_raw_dataset(self,
         train={'nothing': 4, 'other': 8},
         test={'nothing': 2, 'other': 4},
-        expand=(2, 2),
         shuffle=True) \
         -> 'Tuple[RawDataset, RawDataset]':
         if shuffle:
-            np.random.shuffle(self.items)
-        nothing_items = [ item for item in self.items if item[1] == [] ]
-        nothing_items = [ (item[0], [((0, 0, 1920, 1080), 0)]) for item in nothing_items ]
-        other_items = [ item for item in self.items if item[1] != [] ]
+            np.random.shuffle(self.items[0])
+            np.random.shuffle(self.items[1])
+        nothing_items, other_items = self.items
 
         # print("nothing num:", len(nothing_items))
         # print("other num:", len(other_items))
@@ -90,45 +91,11 @@ class LBIDRawDataset():
         train_other = other_items[:train['other']]
         test_other = other_items[train['other']:train['other']+test['other']]
 
-        # sample nothing images
-        train_num, test_num = sum(train.values()), sum(test.values())
-        train_num, test_num = train_num * expand[0], test_num * expand[1]
-        train_nothing_idx = np.random.choice(range(len(train_nothing)), train_num, replace=True)
-        test_nothing_idx = np.random.choice(range(len(test_nothing)), test_num, replace=True)
-        train_nothing_items = [ train_nothing[i] for i in train_nothing_idx ]
-        test_nothing_items = [ test_nothing[i] for i in test_nothing_idx ]
-        # sample other images
-        train_other_idx = np.random.choice(range(len(train_other)), train_num, replace=True)
-        test_other_idx = np.random.choice(range(len(test_other)), test_num, replace=True)
-        train_other_items = [ train_other[i] for i in train_other_idx ]
-        test_other_items = [ test_other[i] for i in test_other_idx ]
+        self.train_items = (train_nothing, train_other)
+        self.test_items = (test_nothing, test_other)
 
-        # merge two lists
-        # generate non-nothing training pairs
-        paired_train_items: RawDataset = [ 
-            (nothing, other) for nothing, other in zip(train_nothing_items, train_other_items)
-        ]
-        # generate nothing training pairs
-        rand_nothing_idx0 = np.random.choice(range(len(train_nothing_items)), train_num, replace=True)
-        rand_nothing_idx1 = np.random.choice(range(len(test_nothing_items)), train_num, replace=True)
-        paired_train_items += [
-            (train_nothing_items[idx0], train_nothing_items[idx1]) \
-                for idx0, idx1 in zip(rand_nothing_idx0, rand_nothing_idx1)
-        ]
+        return self.train_items, self.test_items
 
-        # generate non-nothing test pairs
-        paired_test_items: RawDataset = [
-            (nothing, other) for nothing, other in zip(test_nothing_items, test_other_items)
-        ]
-        # generate nothing test pairs
-        rand_nothing_idx0 = np.random.choice(range(len(test_nothing_items)), test_num, replace=True)
-        rand_nothing_idx1 = np.random.choice(range(len(test_nothing_items)), test_num, replace=True)
-        paired_test_items += [
-            (test_nothing_items[idx0], test_nothing_items[idx1]) \
-                for idx0, idx1 in zip(rand_nothing_idx0, rand_nothing_idx1)
-        ]
-        
-        return paired_train_items, paired_test_items
 
 
 class LBIDTensorDataset(Dataset):
@@ -137,13 +104,16 @@ class LBIDTensorDataset(Dataset):
         self.dataset = dataset
         self.transform = transform
 
+        self.nothing, self.other = dataset
+        self.merged_dataset = self.nothing + self.other
+
     def __getitem__(self, index: int):
-        
-        before, after = self.dataset[index]
-        before_file = before[0]
+        after = self.merged_dataset[index]
+        rand_nothing = np.random.randint(0, len(self.nothing))
+        before = self.nothing[rand_nothing]
         after_file, after_targets = after
         # read jpg image and convert to tensor
-        before_img = Image.open(before_file)
+        before_img = Image.open(before[0])
         after_img = Image.open(after_file)
         if self.transform is not None:
             before_img = self.transform(before_img)
@@ -155,11 +125,9 @@ class LBIDTensorDataset(Dataset):
         after_labels = torch.as_tensor(after_labels, dtype=torch.int64)
         
         return (before_img, after_img), {'boxes': after_boxes, 'labels': after_labels}
-
-        # return after_img, {'boxes': after_boxes, 'labels': after_labels}
     
     def __len__(self):
-        return len(self.dataset)
+        return len(self.merged_dataset)
 
 
 def collate_fn(batch):

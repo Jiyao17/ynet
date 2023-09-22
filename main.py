@@ -24,7 +24,6 @@ class YNetTask():
         dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
         train_nums={'nothing': 180, 'other': 800},
         test_nums={'nothing': 45, 'other': 200},
-        expand=(2, 2),
         batch_size=16,
         num_workers=7,
         lr=0.0001,
@@ -44,7 +43,6 @@ class YNetTask():
             dataset_dir=dataset_dir,
             train_nums=train_nums,
             test_nums=test_nums,
-            expand=expand,
         )
         self.trainloader, self.testloader = self.get_loaders(
             batch_size=batch_size,
@@ -68,10 +66,10 @@ class YNetTask():
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def get_datasets(self, dataset_dir, train_nums, test_nums, expand
+    def get_datasets(self, dataset_dir, train_nums, test_nums
         ):
         self.dataset = LBIDRawDataset(dataset_dir)
-        trainset, testset = self.dataset.split_raw_dataset(train_nums, test_nums, expand)
+        trainset, testset = self.dataset.split_raw_dataset(train_nums, test_nums)
         self.trainset: TensorDataset = LBIDTensorDataset(trainset, self.transform)
         self.testset: TensorDataset = LBIDTensorDataset(testset, self.transform)
 
@@ -222,7 +220,7 @@ class FCOSTask(YNetTask):
         num_workers=7, 
         lr=0.0001,
         device='cuda') -> None:
-        super().__init__(dataset_dir, train_nums, test_nums, (1, 1), # no expand for single backbone
+        super().__init__(dataset_dir, train_nums, test_nums,
             batch_size, num_workers, lr, device)
         
         self.model = detection.FCOS(
@@ -381,8 +379,6 @@ if __name__ == '__main__':
     train_nums={'nothing': 180, 'other': 800}
     test_nums={'nothing': 45, 'other': 200}
 
-    expand=(5, 5)
-
     EPOCH=100
     if TRAIN_MODE:
         BATCH_SIZE=32
@@ -396,7 +392,6 @@ if __name__ == '__main__':
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,
-        expand=expand,
         batch_size=BATCH_SIZE,
         num_workers=NUM_WORKERS,
         lr=LR,

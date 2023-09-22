@@ -1,4 +1,6 @@
 
 dataset/
+
 checkpoint/
-__pycache__/
+
+trained/
