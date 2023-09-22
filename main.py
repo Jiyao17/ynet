@@ -58,10 +58,10 @@ class YNetTask():
                 sizes=((8,), (16,), (32,),),
                 aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
             ),
-            score_thresh=0.05,
+            score_thresh=0.2,
             nms_thresh=1e-5,
             detections_per_img=2,
-            topk_candidates=32,
+            topk_candidates=64,
         )
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -215,7 +215,6 @@ class FCOSTask(YNetTask):
         dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
         train_nums={ 'nothing': 180,'other': 800 },
         test_nums={ 'nothing': 45,'other': 200 }, 
-        expand=(2, 2),
         batch_size=16, 
         num_workers=7, 
         lr=0.0001,
@@ -231,7 +230,7 @@ class FCOSTask(YNetTask):
                 aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
             ),
             score_thresh=0.2,
-            nms_thresh=0.01,
+            nms_thresh=1e-5,
             detections_per_img=2,
             topk_candidates=64,
         )
@@ -296,6 +295,7 @@ class FCOSTask(YNetTask):
                 for j, detection in enumerate(detections):
                     boxes, labels, scores = detection['boxes'], detection['labels'], detection['scores']
                     labels_gt = targets[j]['labels']
+                    # print(labels)
 
                     pred_vec, target_vec, match_vec = labels_to_vec(labels, labels_gt)
                     all_pred_vec += pred_vec
@@ -369,8 +369,8 @@ if __name__ == '__main__':
     np.random.seed(0)
     
     TRAIN_MODE = True
-    LOAD_MODEL = False
-    saved_model='./checkpoint/checkpoint22.pth'
+    LOAD_MODEL = True
+    saved_model='./checkpoint/checkpoint11.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
@@ -421,6 +421,9 @@ if __name__ == '__main__':
         
         lbid.load_model(saved_model)
         pred, target, match = lbid.test()
+        print(pred)
+        print(target)
+        print(match)
 
         AP, AR, mAP, mAR, ap, ar = stats(pred, target, match)
         print(f'AP: {AP}, AR: {AR}')
