@@ -12,6 +12,7 @@ import numpy as np
 from PIL import Image
 import tqdm
 import matplotlib.pyplot as plt
+from colorama import Fore, Back, Style
 
 from utils.dataset import LBIDRawDataset, LBIDTensorDataset, TensorDataset, collate_fn
 from utils.utils import plot_boxes_on_img
@@ -59,7 +60,7 @@ class YNetTask():
                 sizes=((8,), (16,), (32,),),
                 aspect_ratios=((0.5,), (1.0,), (2,),), # equal to num_anchors_per_location
             ),
-            score_thresh=0.2,
+            score_thresh=0.05,
             nms_thresh=1e-5,
             detections_per_img=2,
             topk_candidates=32,
@@ -221,7 +222,7 @@ class FCOSTask(YNetTask):
         num_workers=7, 
         lr=0.0001,
         device='cuda') -> None:
-        super().__init__(dataset_dir, train_nums, test_nums, expand,
+        super().__init__(dataset_dir, train_nums, test_nums, (1, 1), # no expand for single backbone
             batch_size, num_workers, lr, device)
         
         self.model = detection.FCOS(
@@ -370,8 +371,8 @@ if __name__ == '__main__':
     np.random.seed(0)
     
     TRAIN_MODE = True
-    LOAD_MODEL = True
-    saved_model='./checkpoint/checkpoint0.pth'
+    LOAD_MODEL = False
+    saved_model='./checkpoint/checkpoint22.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='/home/jiyao/project/ynet/dataset/raw/'
@@ -384,14 +385,14 @@ if __name__ == '__main__':
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=24
+        BATCH_SIZE=32
     else:
         BATCH_SIZE=64
     LR=0.00001
     NUM_WORKERS=7
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = YNetTask(
+    lbid = FCOSTask(
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,
@@ -415,7 +416,7 @@ if __name__ == '__main__':
             AP, AR, mAP, mAR, ap, ar = stats(pred, target, match)
             print(f'AP: {AP}, AR: {AR}')
             print(f'mAP: {mAP}, mAR: {mAR}, ap: {ap}, ar: {ar}')
-            print(f'model score: {mAP + mAR}, {ap + ar}')
+            print(Fore.GREEN + f'model score: {mAP + mAR}, {ap + ar}' + Style.RESET_ALL)
 
             lbid.save_model(f'./checkpoint/checkpoint{epoch}.pth')
 
