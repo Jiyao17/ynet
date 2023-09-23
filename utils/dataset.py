@@ -94,9 +94,6 @@ class LBIDRawDataset():
             np.random.shuffle(self.items[1])
         nothing_items, other_items = self.items
 
-        # print("nothing num:", len(nothing_items))
-        # print("other num:", len(other_items))
-
         # split nothing and other items
         train_nothing = nothing_items[:train['nothing']]
         if test['nothing'] == 0:
@@ -108,6 +105,9 @@ class LBIDRawDataset():
 
         self.train_items = (train_nothing, train_other)
         self.test_items = (test_nothing, test_other)
+        
+        print("train num:", len(train_nothing), len(train_other))   
+        print("test num:", len(test_nothing), len(test_other))
 
         return self.train_items, self.test_items
 
