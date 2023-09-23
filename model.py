@@ -219,8 +219,8 @@ class ConvFusion(nn.Module):
     # Convolutional fusion
     def __init__(self, c_in, c_out, n=1):
         super(ConvFusion, self).__init__()
-        # self.net = C2f(c_in, c_out, n, shortcut=False)
-        self.net = Conv(c_in, c_out, 3, 1, 1)
+        self.net = C2f(c_in, c_out, n, shortcut=False)
+        # self.net = Conv(c_in, c_out, 3, 1, 1)
 
     def forward(self, x1, x2) -> torch.Tensor:
         x = torch.cat((x1, x2), dim=1)
@@ -365,7 +365,7 @@ class FCOSBackbone(nn.Module):
         self.width = width
         self.ratio = ratio
 
-        self.out_channels = width * 8
+        self.out_channels = round(512 * width)
 
         self.backbone = Backbone(depth, width, ratio)
         self.fpn = FCOSFPN(depth, width, ratio)

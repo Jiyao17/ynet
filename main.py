@@ -53,18 +53,18 @@ class YNetTask():
         self.labels = LBIDRawDataset.labels
 
         self.model = FCOS(
-            backbone=YNetBackbone(0.67, 0.75, 1.5),
+            backbone=YNetBackbone(0.3333, 0.25, 2),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
                 aspect_ratios=((1.0,),) * 3, # equal to num_anchors_per_location
             ),
-            score_thresh=2,
+            score_thresh=1,
             nms_thresh=1e-5,
             detections_per_img=2,
             topk_candidates=64,
         )
-        # self.model = DataParallel(self.model)
+        self.model = DataParallel(self.model)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -236,6 +236,8 @@ class FCOSTask(YNetTask):
             detections_per_img=2,
             topk_candidates=64,
         )
+        self.model = DataParallel(self.model)
+        
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
     def train(self):
@@ -383,14 +385,14 @@ if __name__ == '__main__':
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=16
+        BATCH_SIZE=128
     else:
         BATCH_SIZE=8
     LR=0.0001
-    NUM_WORKERS=8
+    NUM_WORKERS=16
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = YNetTask(
+    lbid = FCOSTask(
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,
