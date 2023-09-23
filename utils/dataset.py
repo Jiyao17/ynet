@@ -86,6 +86,9 @@ class LBIDRawDataset():
         test={'nothing': 2, 'other': 4},
         shuffle=True) \
         -> 'Tuple[RawDataset, RawDataset]':
+        # a hand pick clear background image
+        test_before_img = self.image_dir + "nothing_1_frame373.jpg" 
+
         if shuffle:
             np.random.shuffle(self.items[0])
             np.random.shuffle(self.items[1])
@@ -96,7 +99,10 @@ class LBIDRawDataset():
 
         # split nothing and other items
         train_nothing = nothing_items[:train['nothing']]
-        test_nothing = nothing_items[train['nothing']:train['nothing']+test['nothing']]
+        if test['nothing'] == 0:
+            test_nothing = [ (test_before_img, []) ]
+        else:
+            test_nothing = nothing_items[train['nothing']:train['nothing']+test['nothing']]
         train_other = other_items[:train['other']]
         test_other = other_items[train['other']:train['other']+test['other']]
 

@@ -58,7 +58,7 @@ class YNetTask():
                 sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
                 aspect_ratios=((1.0,),) * 3, # equal to num_anchors_per_location
             ),
-            score_thresh=0.2,
+            score_thresh=2,
             nms_thresh=1e-5,
             detections_per_img=2,
             topk_candidates=64,
@@ -370,22 +370,22 @@ if __name__ == '__main__':
     
     TRAIN_MODE = True
     LOAD_MODEL = False
-    saved_model='./checkpoint/checkpoint2.pth'
+    saved_model='./checkpoint/checkpoint9.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
-    train_nums={'nothing': 500, 'other': 800}
-    test_nums={'nothing': 100, 'other': 200}
+    train_nums={'nothing': 600, 'other': 800}
+    test_nums={'nothing': 0, 'other': 200}
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=4
+        BATCH_SIZE=24
     else:
-        BATCH_SIZE=64
+        BATCH_SIZE=16
     LR=0.0001
-    NUM_WORKERS=1
+    NUM_WORKERS=16
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     lbid = YNetTask(
