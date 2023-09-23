@@ -7,6 +7,7 @@ from torchvision.models.detection.anchor_utils import AnchorGenerator
 from torch.utils.data import DataLoader
 from torchvision.transforms import Compose, ToTensor, Resize
 from torchvision.models import detection
+from torch.nn import DataParallel
 
 import numpy as np
 from PIL import Image
@@ -63,6 +64,7 @@ class YNetTask():
             detections_per_img=2,
             topk_candidates=64,
         )
+        # self.model = DataParallel(self.model)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -223,7 +225,7 @@ class FCOSTask(YNetTask):
             batch_size, num_workers, lr, device)
         
         self.model = detection.FCOS(
-            backbone=FCOSBackbone(2, 32, 2),
+            backbone=FCOSBackbone(0.67, 0.75, 1.5),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),
@@ -376,16 +378,16 @@ if __name__ == '__main__':
     dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
-    train_nums={'nothing': 600, 'other': 800}
-    test_nums={'nothing': 0, 'other': 200}
+    train_nums={'nothing': 400, 'other': 800}
+    test_nums={'nothing': 100, 'other': 200}
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=24
-    else:
         BATCH_SIZE=16
+    else:
+        BATCH_SIZE=8
     LR=0.0001
-    NUM_WORKERS=16
+    NUM_WORKERS=8
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     lbid = YNetTask(
