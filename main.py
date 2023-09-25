@@ -22,6 +22,7 @@ from model import FCOS, YNetBackbone, FCOSBackbone
 
 class YNetTask():
     def __init__(self, 
+        model_size=(0.67, 0.75, 1.5),
         dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
         train_nums={'nothing': 180, 'other': 800},
         test_nums={'nothing': 45, 'other': 200},
@@ -31,7 +32,7 @@ class YNetTask():
         device='cuda',
         ) -> None:
         super().__init__()
-
+        self.model_size = model_size
         self.device = device
 
         self.transform = Compose([
@@ -53,18 +54,18 @@ class YNetTask():
         self.labels = LBIDRawDataset.labels
 
         self.model = FCOS(
-            backbone=YNetBackbone(0.3333, 0.25, 2),
+            backbone=YNetBackbone(*model_size),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
                 aspect_ratios=((1.0,),) * 3, # equal to num_anchors_per_location
             ),
-            score_thresh=1,
+            score_thresh=0.2,
             nms_thresh=1e-5,
             detections_per_img=2,
             topk_candidates=64,
         )
-        self.model = DataParallel(self.model)
+        # self.model = DataParallel(self.model)
 
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -214,6 +215,7 @@ class YNetTask():
 
 class FCOSTask(YNetTask):
     def __init__(self,
+        model_size=(0.67, 0.75, 1.5),
         dataset_dir='/home/jiyao/project/ynet/dataset/raw/',
         train_nums={ 'nothing': 180,'other': 800 },
         test_nums={ 'nothing': 45,'other': 200 }, 
@@ -221,11 +223,13 @@ class FCOSTask(YNetTask):
         num_workers=7, 
         lr=0.0001,
         device='cuda') -> None:
-        super().__init__(dataset_dir, train_nums, test_nums,
-            batch_size, num_workers, lr, device)
+        super().__init__( model_size,
+            dataset_dir, train_nums, test_nums,
+            batch_size, num_workers, lr, device
+            )
         
         self.model = detection.FCOS(
-            backbone=FCOSBackbone(0.67, 0.75, 1.5),
+            backbone=FCOSBackbone(*model_size),
             num_classes=len(self.labels),
             anchor_generator=AnchorGenerator(
                 sizes=((8,), (16,), (32,),),
@@ -236,8 +240,8 @@ class FCOSTask(YNetTask):
             detections_per_img=2,
             topk_candidates=64,
         )
-        self.model = DataParallel(self.model)
-        
+        # self.model = DataParallel(self.model)
+
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
     def train(self):
@@ -367,32 +371,43 @@ def stats(pred: Tensor, target: Tensor, match: Tensor):
 
 
 
+
     
 if __name__ == '__main__':
     torch.random.manual_seed(0)
     np.random.seed(0)
+
+    SIZES = {
+        'n': (0.33, 0.25, 2.0),
+        's': (0.33, 0.50, 2.0),
+        'm': (0.50, 0.67, 1.5),
+        'l': (1.00, 1.00, 1.0),
+        'x': (1.00, 1.25, 1.0),
+    }
     
     TRAIN_MODE = True
     LOAD_MODEL = False
-    saved_model='./checkpoint/checkpoint9.pth'
+    model_size=SIZES['m']
+    saved_model='./checkpoint/checkpoint13.pth'
     # saved_model='./trained/double_backbone1.3.pth'
 
     dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
     # test_nums={'nothing': 10, 'other': 10}
-    train_nums={'nothing': 400, 'other': 800}
-    test_nums={'nothing': 100, 'other': 200}
+    train_nums={'nothing': 500, 'other': 800}
+    test_nums={'nothing': 0, 'other': 200}
 
     EPOCH=100
     if TRAIN_MODE:
-        BATCH_SIZE=128
+        BATCH_SIZE=16
     else:
-        BATCH_SIZE=8
+        BATCH_SIZE=16
     LR=0.0001
-    NUM_WORKERS=16
+    NUM_WORKERS=8
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     lbid = FCOSTask(
+        model_size=model_size,
         dataset_dir=dataset_dir,
         train_nums=train_nums,
         test_nums=test_nums,

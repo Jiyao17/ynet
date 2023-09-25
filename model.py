@@ -219,8 +219,10 @@ class ConvFusion(nn.Module):
     # Convolutional fusion
     def __init__(self, c_in, c_out, n=1):
         super(ConvFusion, self).__init__()
-        self.net = C2f(c_in, c_out, n, shortcut=False)
-        # self.net = Conv(c_in, c_out, 3, 1, 1)
+        # the simpler the better!
+        # self.net = C2f(c_in, c_out, n, shortcut=False)
+        self.net = Conv(c_in, c_out, 3, 1, 1)
+        # self.net = nn.Conv2d(c_in, c_out, 3, 1, 1)
 
     def forward(self, x1, x2) -> torch.Tensor:
         x = torch.cat((x1, x2), dim=1)
