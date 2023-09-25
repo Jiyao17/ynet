@@ -387,9 +387,9 @@ if __name__ == '__main__':
     
     TRAIN_MODE = True
     LOAD_MODEL = False
-    model_size=SIZES['m']
-    saved_model='./checkpoint/checkpoint13.pth'
-    # saved_model='./trained/double_backbone1.3.pth'
+    model_size=SIZES['s']
+    # saved_model='./checkpoint/checkpoint13.pth'
+    saved_model='./trained/double_n_1.58.pth'
 
     dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
@@ -406,7 +406,7 @@ if __name__ == '__main__':
     NUM_WORKERS=8
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = FCOSTask(
+    lbid = YNetTask(
         model_size=model_size,
         dataset_dir=dataset_dir,
         train_nums=train_nums,

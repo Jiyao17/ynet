@@ -215,10 +215,10 @@ class FCOSFPN(nn.Module):
 
 
 
-class ConvFusion(nn.Module):
+class ConvFusor(nn.Module):
     # Convolutional fusion
     def __init__(self, c_in, c_out, n=1):
-        super(ConvFusion, self).__init__()
+        super(ConvFusor, self).__init__()
         # the simpler the better!
         # self.net = C2f(c_in, c_out, n, shortcut=False)
         self.net = Conv(c_in, c_out, 3, 1, 1)
@@ -238,9 +238,9 @@ class FusionPlant(nn.Module):
         self.width = width
         self.ratio = ratio
 
-        self.conv4 = ConvFusion(round(256*width*2), round(256*width))
-        self.conv6 = ConvFusion(round(512*width*2), round(512*width))
-        self.sppf9 = ConvFusion(round(512*width*ratio*2), round(512*width*ratio))
+        self.conv4 = ConvFusor(round(256*width*2), round(256*width))
+        self.conv6 = ConvFusor(round(512*width*2), round(512*width))
+        self.sppf9 = ConvFusor(round(512*width*ratio*2), round(512*width*ratio))
 
     def forward(self, c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2) -> torch.Tensor:
         # c4 = torch.cat([c4_1, c4_2], dim=1)
@@ -262,11 +262,11 @@ class FCOSFusionPlant(nn.Module):
         self.ratio = ratio
 
         # self.conv4 = Conv(width*4*2, width*4, 3, 1, 1)
-        self.conv4 = ConvFusion(width*4*2, width*8, 3, 1, 1)
+        self.conv4 = ConvFusor(width*4*2, width*8, 3, 1, 1)
         # self.conv6 = Conv(width*8*2, width*8, 3, 1, 1)
-        self.conv6 = ConvFusion(width*8*2, width*8, 3, 1, 1)
+        self.conv6 = ConvFusor(width*8*2, width*8, 3, 1, 1)
         # self.sppf9 = Conv(width*8*ratio*2, width*8*ratio, 3, 1, 1)
-        self.sppf9 = ConvFusion(width*8*ratio*2, width*8, 3, 1, 1)
+        self.sppf9 = ConvFusor(width*8*ratio*2, width*8, 3, 1, 1)
 
     def forward(self, c4_1, c6_1, sppf_1, c4_2, c6_2, sppf_2) -> torch.Tensor:
         # c4 = torch.cat([c4_1, c4_2], dim=1)
@@ -515,7 +515,7 @@ class TinyBackbone(nn.Module):
             Conv(32, 64, 3, 2, 1),
         )
 
-        self.fusor = ConvFusion(64*2, self.out_channels, 3, 1, 1)
+        self.fusor = ConvFusor(64*2, self.out_channels, 3, 1, 1)
 
     def forward(self, x1, x2) -> 'tuple[torch.Tensor]':
         f1 = self.extractor1(x1)
@@ -955,25 +955,28 @@ class FCOS(nn.Module):
         return self.eager_outputs(losses, detections)
 
 
+SIZES = {
+    'n': (0.33, 0.25, 2.0),
+    's': (0.33, 0.50, 2.0),
+    'm': (0.50, 0.67, 1.5),
+    'l': (1.00, 1.00, 1.0),
+    'x': (1.00, 1.25, 1.0),
+    }
 
 
-def test():
-    net = TinyYNet()
-    x1 = torch.randn(32, 3, 640, 640)
-    x2 = torch.randn(32, 3, 640, 640)
-    
-    classes, boxes = net(x1, x2)
-    print(classes.shape, boxes.shape)
-    # loss_fn = DetectLoss()
-    # loss = loss_fn((result['boxes'], result['labels']), torch.randint(-1, 1, (32, 5)))
-    # loss.backward()
-    # print(loss.item())
-
-def test_yolo():
-    net = YOLOv8(1, 16, 1)
-    x1 = torch.randn(32, 3, 640, 640)
-    cls1, bbox1, cls2, bbox2, cls3, bbox3 = net(x1)
-    print(cls1.shape, bbox1.shape, cls2.shape, bbox2.shape, cls3.shape, bbox3.shape)
+def check_size():
+    net = FCOS(
+        backbone=YNetBackbone(*SIZES['s']),
+        num_classes=3,
+        anchor_generator=AnchorGenerator(
+            sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
+            aspect_ratios=((1.0,),) * 3, # equal to num_anchors_per_location
+        ),
+        score_thresh=0.2,
+        nms_thresh=1e-5,
+        detections_per_img=2,
+        topk_candidates=64,
+        )
 
     param_num = 0
     for param in net.parameters():
@@ -983,5 +986,4 @@ def test_yolo():
 
 
 if __name__ == '__main__':
-    test()
-    # test_yolo()
+    check_size()
