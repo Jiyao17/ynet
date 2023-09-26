@@ -384,12 +384,21 @@ if __name__ == '__main__':
         'l': (1.00, 1.00, 1.0),
         'x': (1.00, 1.25, 1.0),
     }
+
+    SIZES_TUNED = {
+        'n': (0.33, 0.50, 1.0),
+        's': (0.33, 0.50, 2.0),
+        'm': (0.50, 0.67, 1.5),
+        'l': (1.00, 1.00, 1.0),
+        'x': (1.00, 1.25, 1.0),
+    }
     
     TRAIN_MODE = True
     LOAD_MODEL = False
-    model_size=SIZES['s']
-    # saved_model='./checkpoint/checkpoint13.pth'
-    saved_model='./trained/double_n_1.58.pth'
+    # model_size=SIZES['s']
+    model_size=SIZES_TUNED['n']
+    # saved_model='./checkpoint/checkpoint7.pth'
+    saved_model='./trained/single_n_1.54.pth'
 
     dataset_dir='./dataset/raw/'
     # train_nums={'nothing': 40, 'other': 40}
@@ -406,7 +415,7 @@ if __name__ == '__main__':
     NUM_WORKERS=8
     DEVICE = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    lbid = YNetTask(
+    lbid = FCOSTask(
         model_size=model_size,
         dataset_dir=dataset_dir,
         train_nums=train_nums,

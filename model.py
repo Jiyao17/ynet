@@ -214,7 +214,6 @@ class FCOSFPN(nn.Module):
         return c15, c18, c21
 
 
-
 class ConvFusor(nn.Module):
     # Convolutional fusion
     def __init__(self, c_in, c_out, n=1):
@@ -966,7 +965,7 @@ SIZES = {
 
 def check_size():
     net = FCOS(
-        backbone=YNetBackbone(*SIZES['s']),
+        backbone=FCOSBackbone(*SIZES['x']),
         num_classes=3,
         anchor_generator=AnchorGenerator(
             sizes=((8,), (16,), (32,),),  # equal to strides of multi-level feature map
