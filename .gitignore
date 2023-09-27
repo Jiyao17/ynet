@@ -1,4 +1,9 @@
 
+.vscode/
+
+.gitignore
+
+
 assets/
 
 *__pycache__/
