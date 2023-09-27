@@ -4,43 +4,6 @@ from typing import List, Tuple
 import torch
 from torch import Tensor, nn
 
-
-def make_anchors(features: List[Tensor], strides, offset=0.5):
-    anchor_points, anchor_strides = [], []
-    
-    dtype, device = features[0].dtype, features[0].device
-    for i, stride in enumerate(strides):
-        b, c, h, w = features[i].shape
-        sx = torch.arange(w, dtype=dtype, device=device) + offset
-        sy = torch.arange(h, dtype=dtype, device=device) + offset
-        x, y = torch.meshgrid(sx, sy)
-        anchor_points.append(torch.stack((x, y), dim=-1).view(-1, 2))
-        anchor_strides.append(torch.full((h*w, 1), stride, dtype=dtype, device=device))
-
-    anchor_points = torch.cat(anchor_points, dim=0)
-    anchor_strides = torch.cat(anchor_strides, dim=0)
-
-    return anchor_points, anchor_strides
-
-
-def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
-    """
-    transform distance (ltrb) to box (xywh or xyxy)
-    """
-    
-    lt, rb = distance.chunk(2, dim=dim)
-    x1y1 = anchor_points - lt
-    x2y2 = anchor_points + rb
-
-    if xywh:
-        center = (x1y1 + x2y2) / 2
-        wh = x2y2 - x1y1
-        # return xywh bbox
-        return torch.cat((center, wh), dim=dim)
-    # return xyxy bbox
-    return torch.cat((x1y1, x2y2), dim=dim)
-
-
 class TaskAlignedAssigner(nn.Module):
     """
     A task-aligned assigner for object detection.
@@ -229,4 +192,49 @@ class TaskAlignedAssigner(nn.Module):
 
         return target_labels, target_bboxes, target_scores
     
+
+def bbox2dist(anchor_points: Tensor, bbox: Tensor, reg_max: int):
+    """Transform bbox(xyxy) to dist(ltrb)."""
+    x1y1, x2y2 = bbox.chunk(2, -1)
+    ltrb = torch.cat((anchor_points - x1y1, x2y2 - anchor_points), -1)
+    ltrb = ltrb.clamp_(0, reg_max - 0.01)
+    return ltrb
+
+
+
+
+def make_anchors(features: List[Tensor], strides, offset=0.5):
+    anchor_points, anchor_strides = [], []
+    
+    dtype, device = features[0].dtype, features[0].device
+    for i, stride in enumerate(strides):
+        b, c, h, w = features[i].shape
+        sx = torch.arange(w, dtype=dtype, device=device) + offset
+        sy = torch.arange(h, dtype=dtype, device=device) + offset
+        x, y = torch.meshgrid(sx, sy)
+        anchor_points.append(torch.stack((x, y), dim=-1).view(-1, 2))
+        anchor_strides.append(torch.full((h*w, 1), stride, dtype=dtype, device=device))
+
+    anchor_points = torch.cat(anchor_points, dim=0)
+    anchor_strides = torch.cat(anchor_strides, dim=0)
+
+    return anchor_points, anchor_strides
+
+
+def dist2bbox(distance, anchor_points, xywh=True, dim=-1):
+    """
+    transform distance (ltrb) to box (xywh or xyxy)
+    """
+    
+    lt, rb = distance.chunk(2, dim=dim)
+    x1y1 = anchor_points - lt
+    x2y2 = anchor_points + rb
+
+    if xywh:
+        center = (x1y1 + x2y2) / 2
+        wh = x2y2 - x1y1
+        # return xywh bbox
+        return torch.cat((center, wh), dim=dim)
+    # return xyxy bbox
+    return torch.cat((x1y1, x2y2), dim=dim)
 

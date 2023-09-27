@@ -31,9 +31,9 @@ def read_label(filename):
 
 # model = YOLO("./runs/detect/lbid8/weights/best.pt", "detect")
 model = YOLO("yolov8.yaml", "detect")
-results = model.train(data="dataset/yolo_dataset/lbid.yaml", 
+results = model.train(data="/home/jiyao/project/ynet/dataset/yolo_dataset/lbid.yaml", 
     epochs=30, batch=16, imgsz=640,
-    name="lbid"
+    name="lbid", device='cuda'
     )
 
 folder = "/home/jiyao/project/ynet/dataset/yolo_dataset/"

@@ -207,9 +207,9 @@ if __name__ == "__main__":
     param_num = sum(p.numel() for p in model.parameters())
     print("param_num:", param_num / 1e6, "M")
 
-    model.eval()
+    model.train()
     preds = model(img)
-    print(preds.shape)
+    print(preds[0].shape, preds[1].shape, preds[2].shape)
 
     # yolo = YOLO('../../assets/yolov8n.pt', 'detect')
     # model = yolo.model.DetectionModel()
