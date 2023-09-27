@@ -344,6 +344,33 @@ def test():
                 img = Image.fromarray(img.astype(np.uint8))
                 img.show()
 
+class Detect1(nn.Module):
+    # YOLOv8 detectors
+    def __init__(self, channels, num_classes, reg_max=8):
+        super(Detect, self).__init__()
+        self.channels = channels
+        self.reg_max = reg_max
+        self.num_class = num_classes
+
+        reg_hid_ch = max(channels//4, 16, reg_max*4)
+        self.regressor = nn.Sequential(
+            Conv(channels, reg_hid_ch, 3,),
+            Conv(reg_hid_ch, reg_hid_ch, 3),
+            nn.Conv2d(reg_hid_ch, reg_max*4, 1),
+        )
+        cls_hid_ch = max(channels, min(num_classes, 100))
+        self.classifier = nn.Sequential(
+            Conv(channels, cls_hid_ch, 3),
+            Conv(cls_hid_ch, cls_hid_ch, 3),
+            nn.Conv2d(cls_hid_ch, num_classes, 1),
+        )
+
+    def forward(self, x) -> 'tuple[torch.Tensor]':
+        classes = self.classifier(x)
+        boxes = self.regressor(x)
+
+        return classes, boxes
+
 
 
 

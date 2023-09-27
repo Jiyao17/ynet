@@ -17,7 +17,7 @@ import numpy as np
 from PIL import Image
 import matplotlib.pyplot as plt
 
-from model import Conv, ConvFusion
+from utils.model import Conv, ConvFusion
 from utils.dataset import LBIDRawDataset, LBIDTensorDataset, TensorDataset, collate_fn
 from utils.utils import plot_boxes_on_img
 

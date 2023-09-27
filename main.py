@@ -17,7 +17,7 @@ from colorama import Fore, Back, Style
 
 from utils.dataset import LBIDRawDataset, LBIDTensorDataset, TensorDataset, collate_fn
 from utils.utils import plot_boxes_on_img
-from model import FCOS, YNetBackbone, FCOSBackbone
+from utils.model import FCOS, YNetBackbone, FCOSBackbone
 
 
 class YNetTask():
@@ -354,21 +354,6 @@ class FCOSTask(YNetTask):
                         return
 
 
-def stats(pred: Tensor, target: Tensor, match: Tensor):
-    AP, AR = match / pred, match / target
-    mAP, mAR = torch.mean(AP), torch.mean(AR)
-    ap, ar = torch.sum(match) / torch.sum(pred), torch.sum(match) / torch.sum(target)
-
-    # convert to basic type
-    AP = AP.cpu().numpy().tolist()
-    AR = AR.cpu().numpy().tolist()
-    mAP = mAP.cpu().numpy().tolist()
-    mAR = mAR.cpu().numpy().tolist()
-    ap = ap.cpu().numpy().tolist()
-    ar = ar.cpu().numpy().tolist()
-
-    return AP, AR, mAP, mAR, ap, ar
-
 
 
 
@@ -376,14 +361,6 @@ def stats(pred: Tensor, target: Tensor, match: Tensor):
 if __name__ == '__main__':
     torch.random.manual_seed(0)
     np.random.seed(0)
-
-    SIZES = {
-        'n': (0.33, 0.25, 2.0),
-        's': (0.33, 0.50, 2.0),
-        'm': (0.50, 0.67, 1.5),
-        'l': (1.00, 1.00, 1.0),
-        'x': (1.00, 1.25, 1.0),
-    }
 
     SIZES_TUNED = {
         'n': (0.33, 0.50, 1.0),

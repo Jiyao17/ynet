@@ -1,5 +1,5 @@
 
-yolov8n.pt
+assets/
 
 *__pycache__/
 
@@ -12,5 +12,5 @@ runs/
 trained/
 
 
-
+yolov8n.pt
 

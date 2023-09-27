@@ -7,7 +7,7 @@ import PIL.Image as Image
 
 from ultralytics import YOLO
 
-from utils.utils import matched_preds, plot_boxes_on_img
+from src.utils.hresult import matched_preds, plot_boxes_on_img
 
 
 
