@@ -4,7 +4,7 @@ from typing import Any, Tuple, List
 import torch
 from torch import nn
 
-from basic import Conv, C2f, SPPF, DFL
+from src.models.nn import Conv, C2f, SPPF, DFL
 from src.utils.tal import make_anchors, dist2bbox
 
 
@@ -122,31 +122,19 @@ class Detect(nn.Module):
 
     def forward(self, xs: List[torch.Tensor]) -> 'tuple[torch.Tensor]':
         """
+        process the output of FPN
         xs: list[torch.Tensor], output of FPN
+        return: list[torch.Tensor], each element is (batch, num_outputs, h, w)
+                from each detector
         """
-        shape = xs[0].shape
         for i, x in enumerate(xs):
             xs[i] = torch.cat((self.regressors[i](x), self.classifiers[i](x)), dim=1)
 
-        if self.training:
-            return xs
+        return xs
+    
+    def __call__(self, *args: Any, **kwds: Any) -> torch.Tensor:
+        return self.forward(*args, **kwds)
         
-        self.anchors_points, self.anchor_strides = \
-            (x.transpose(0, 1) for x in make_anchors(xs, self.strides, 0.5))
-
-        x_cat = torch.cat([x.view(shape[0], self.num_outputs, -1) for x in xs], dim=2)
-        box, cls = x_cat.split([self.reg_max*4, self.num_class], dim=1)
-        dbox = dist2bbox(self.dfl(box), self.anchors_points.unsqueeze(0), True, 1) * self.anchor_strides
-
-        y = torch.cat((dbox, cls.sigmoid()), dim=1)
-        
-        # shape = (batch, num_outputs, num_anchors)
-        # also    (batch, num_classes+4, sum(fmap_shapes[:,0]*fmap_shape[:,1])
-        # e.g., fmaps: [80*80, 40*40, 20*20], num_anchors=80*80+40*40+20*20=8400
-        # for v8n, shape = (batch, num_classes+4, 8400)
-        return y
-        
-
 class Head(nn.Module):
     # YOLO head
     def __init__(self, depth, width, ratio, num_classes, reg_max):
@@ -169,6 +157,11 @@ class Head(nn.Module):
         detects = self.detect([c15, c18, c21])
         return detects
 
+    def __call__(self, *args: Any, **kwds: Any) -> torch.Tensor:
+        """
+        for type hint
+        """
+        return self.forward(*args, **kwds)
 
 class YOLOv8(nn.Module):
     def __init__(self, size: Tuple[float], num_class :int=20, reg_max: int=4):
@@ -176,15 +169,41 @@ class YOLOv8(nn.Module):
         self.size = size
         self.num_class = num_class
         self.reg_max = reg_max
+        self.num_outputs = num_class + reg_max*4
+        self.strides = [8, 16, 32]
 
         depth, width, ratio = size
         self.backbone = Backbone(depth, width, ratio)
         self.head = Head(depth, width, ratio, num_class, reg_max)
+        self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
 
     def forward(self, x1) -> Tuple[torch.Tensor]:
+        """
+        return: if training, return raw outputs from detectors
+                if inference, return (batch, num_outputs, num_anchors)
+        """
         c4, c6, sppf = self.backbone(x1)
-        detects = self.head(c4, c6, sppf)
-        return detects
+        output = self.head(c4, c6, sppf)
+
+        if self.training:
+            return output
+        
+        # generate one anchor for each grid cell
+        self.anchors_points, self.anchor_strides = \
+            (x.transpose(0, 1) for x in make_anchors(output, self.strides, 0.5))
+        
+        batch = output[0].shape[0]
+        x_cat = torch.cat([x.view(batch, self.num_outputs, -1) for x in output], dim=2)
+        # reg_max*4 for bbox, num_class for cls
+        box, cls = x_cat.split([self.reg_max*4, self.num_class], dim=1)
+        # one dbox (ltrb) for each anchor
+        dbox = dist2bbox(self.dfl(box), self.anchors_points.unsqueeze(0), True, 1) * self.anchor_strides
+
+        # class+box for each anchor
+        # shape = (batch, num_outputs, num_anchors)
+        y = torch.cat((dbox, cls.sigmoid()), dim=1)
+        return y
+
 
     def __call__(self, *args: Any, **kwds: Any) -> torch.Tensor:
         return self.forward(*args, **kwds)
@@ -199,25 +218,3 @@ SIZES = {
 }
 
 
-
-if __name__ == "__main__":
-    img = torch.randn(8, 3, 640, 640)
-    size = SIZES['n']
-    model = YOLOv8(size, 20, 4)
-    param_num = sum(p.numel() for p in model.parameters())
-    print("param_num:", param_num / 1e6, "M")
-
-    model.train()
-    preds = model(img)
-    print(preds[0].shape, preds[1].shape, preds[2].shape)
-
-    # yolo = YOLO('../../assets/yolov8n.pt', 'detect')
-    # model = yolo.model.DetectionModel()
-    # # param_num = sum(p.numel() for p in model.parameters())
-    # # print(param_num)
-    # summary = torchsummary.summary(model, (3, 224, 224), 1, device='cpu') 
-    # print(summary)
-    
-    # img = torch.randn(1, 3, 640, 640)
-    # cls1, bbox1, cls2, bbox2, cls3, bbox3 = yolo(img)
-    # print(cls1.shape, bbox1.shape)

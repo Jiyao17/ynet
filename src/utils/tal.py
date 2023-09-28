@@ -203,15 +203,20 @@ def bbox2dist(anchor_points: Tensor, bbox: Tensor, reg_max: int):
 
 
 
-def make_anchors(features: List[Tensor], strides, offset=0.5):
+def make_anchors(shapes, strides, offset=0.5, dtype=torch.float32, device='cpu'):
+    """
+    shapes: list[Tensor], each element is the shape of output from a detector
+    strides: list[int], each element is the stride of output from a detector
+    offset: float, the offset of anchor points
+    """
+    assert len(shapes) == len(strides)
     anchor_points, anchor_strides = [], []
     
-    dtype, device = features[0].dtype, features[0].device
     for i, stride in enumerate(strides):
-        b, c, h, w = features[i].shape
+        b, c, h, w = shapes[i]
         sx = torch.arange(w, dtype=dtype, device=device) + offset
         sy = torch.arange(h, dtype=dtype, device=device) + offset
-        x, y = torch.meshgrid(sx, sy)
+        x, y = torch.meshgrid(sx, sy, indexing='xy')
         anchor_points.append(torch.stack((x, y), dim=-1).view(-1, 2))
         anchor_strides.append(torch.full((h*w, 1), stride, dtype=dtype, device=device))
 
