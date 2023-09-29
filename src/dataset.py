@@ -1,201 +1,159 @@
 
 
-import json
 import os
 from typing import NewType, Tuple, List
 
 import torch
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset, DataLoader
+from torchvision import transforms
 from torchvision import ops
 
 import numpy as np
 from PIL import Image
 
-Filename = NewType('Filename', str)
-BBox = NewType('BBox', Tuple[int, int, int, int])
-Label = NewType('Label', int)
+from src.utils.hresult import plot_boxes_on_img
 
+Filename = NewType('Filename', str)
+BBox = NewType('BBox', Tuple[int, int, int, int, int])
 # data entry for LBIDRawDataset
-DataEntry = Tuple[Filename, Tuple[BBox, Label]]
-# DataEntry = NewType('DataEntry', Tuple[Filename, BBox, Label])
-# RawDataset = NewType('RawDataset', List[Tuple[DataEntry, DataEntry]])
-RawDataset = Tuple[List[DataEntry], List[DataEntry]]
-# data entry for LBIDDataset
-# TensorDataEntry = NewType('TensorDataEntry', Tuple[torch.Tensor, torch.Tensor])
-TensorDataEntry = Tuple[torch.Tensor, torch.Tensor]
-# TensorDataset = NewType('TensorDataset', List[TensorDataEntry])
-TensorDataset = List[TensorDataEntry]
+DataEntry = Tuple[Filename, Tuple[BBox]]
+
 
 
 
 class LBIDRawDataset():
-    labels = ['airpod', 'phone', 'bag']
+    labels = None
 
-    def __init__(self, ds_dir: str,) -> None:
+    def __init__(self,
+        image_dir: str,
+        label_dir: str,
+        img_size: Tuple[int, int],
+        labels: List[str],
+        ) -> None:
         super().__init__()
-        self.dir = ds_dir
-        self.image_dir = ds_dir + '/images/'
+        self.image_dir = image_dir
+        self.label_dir = label_dir
+        self.img_size = img_size
+        self.labels = labels
 
-        self.stats = np.zeros(len(LBIDRawDataset.labels)+1, dtype=np.int32)
+        self.stats = np.zeros(len(self.labels)+1, dtype=np.int32)
+        self.items: List[DataEntry] = self.parse_items()
 
-        self.train_items: RawDataset = ([], [])
-        self.test_items: RawDataset = ([], [])
-        self.items: RawDataset = self.parse_organize()
-
-
-    def parse_organize(self,) -> RawDataset:
-        # parse lebeled data
-        filename = self.dir + '/labels.json'
-        nothing_items: List[DataEntry] = []
-        other_items: List[DataEntry] = []
-        with open(filename, 'r') as f:
-            raw_items = json.load(f)
-            for item in raw_items:
-                filename: str = item['image']
-                santinized = filename.split('-')[-1]
-                filename = self.image_dir + santinized
-
-                gts = []
-                raw_labels: list[dict] = item['label']
-                for raw_label in raw_labels:
-                    x, y, w, h, _, classes, ow, oh = list(raw_label.values())
-                    x, y, w, h = int(x*ow/100), int(y*oh/100), int(w*ow/100), int(h*oh/100)
-                    x1, y1, x2, y2 = x, y, x+w, y+h
-
-                    label = LBIDRawDataset.labels.index(classes[0])
-                    gts.append(((x1, y1, x2, y2), label))
+    def parse_items(self,) -> List[DataEntry]:
+        image_files: List[str] = os.listdir(self.image_dir)
+        items: List[DataEntry] = []
+        W, H = self.img_size
+        for image_file in image_files:
+            image_path = self.image_dir + image_file
+            label_path = self.label_dir + image_file.replace(".jpg", ".txt")
+            with open(label_path, 'r') as f:
+                lines = f.readlines()
+                lines = [ line.strip() for line in lines ]
+                bboxes = []
+                for line in lines:
+                    label, x, y, w, h = line.split(' ')
+                    # convert str to numbers
+                    label, x, y, w, h = int(label), float(x), float(y), float(w), float(h)
+                    # convert percentage to pixel index
+                    # x, y, w, h = int(x*W), int(y*H), int(w*W), int(h*H)
+                    # x1, y1, x2, y2 = x-w//2, y-h//2, x+w//2, y+h//2
+                    bboxes.append((label, x, y, w, h))
+                    # bboxes.append((label, x1, y1, x2, y2))
                     self.stats[label] += 1
+                items.append((image_path, bboxes))
 
-                other_items.append((filename, gts))
-
-
-        # parse nothing data
-        imgs = os.listdir(self.image_dir)
-        imgs = [ self.image_dir + img for img in imgs if img.startswith('nothing') ]
-        # danger: 1920, 1080 is hard coded
-        # nothing_items = [ (img, [((0, 0, 1920, 1080), 0)]) for img in imgs ]
-        nothing_items = [ (img, []) for img in imgs ]
-        self.stats[-1] += len(nothing_items)
-
-        print("stat:", self.stats)
-        self.items = (nothing_items, other_items)
-        return self.items
-
-    def split_raw_dataset(self,
-        train={'nothing': 4, 'other': 8},
-        test={'nothing': 2, 'other': 4},
-        shuffle=True) \
-        -> 'Tuple[RawDataset, RawDataset]':
-        # a hand pick clear background image
-        test_before_img = self.image_dir + "nothing_1_frame373.jpg" 
-
-        if shuffle:
-            np.random.shuffle(self.items[0])
-            np.random.shuffle(self.items[1])
-        nothing_items, other_items = self.items
-
-        # split nothing and other items
-        train_nothing = nothing_items[:train['nothing']]
-        if test['nothing'] == 0:
-            test_nothing = [ (test_before_img, []) ]
-        else:
-            test_nothing = nothing_items[train['nothing']:train['nothing']+test['nothing']]
-        train_other = other_items[:train['other']]
-        test_other = other_items[train['other']:train['other']+test['other']]
-
-        self.train_items = (train_nothing, train_other)
-        self.test_items = (test_nothing, test_other)
-
-        print("train num:", len(train_nothing), len(train_other))   
-        print("test num:", len(test_nothing), len(test_other))
-
-        return self.train_items, self.test_items
+        return items
 
 
-
-class LBIDTensorDataset(Dataset):
-    def __init__(self, dataset: RawDataset, transform=None) -> None:
+class YoloTensorDataset(Dataset):
+    def __init__(self, dataset: LBIDRawDataset, transform=None) -> None:
         super().__init__()
         self.dataset = dataset
         self.transform = transform
 
-        self.nothing, self.other = dataset
-        self.merged_dataset = self.nothing + self.other
+        self.items = dataset.items
 
     def __getitem__(self, index: int):
-        after = self.merged_dataset[index]
-        rand_nothing = np.random.randint(0, len(self.nothing))
-        before = self.nothing[rand_nothing]
-        after_file, after_targets = after
-        # read jpg image and convert to tensor
-        before_img = Image.open(before[0])
-        after_img = Image.open(after_file)
+        item = self.items[index]
+        img = Image.open(item[0])
+        original_size = np.array(img.size, dtype=np.float32)
+        scaled_size = original_size
         if self.transform is not None:
-            before_img = self.transform(before_img)
-            after_img = self.transform(after_img)
+            img = self.transform(img)
+            scaled_size = np.array(img.shape[1:], dtype=np.float32)
+        # scales = scaled_size / original_size
 
-        after_boxes = [ target[0] for target in after_targets ]
-        after_labels = [ target[1] for target in after_targets ]
-        if len(after_boxes) == 0:
-            after_boxes = torch.zeros((0, 4), dtype=torch.int32)
+        boxes = np.array(item[1], dtype=np.float32)
+        # boxes[:, 1:] *= scales[0], scales[1], scales[0], scales[1]
+        if len(boxes) == 0:
+            boxes = torch.zeros((0, 4), dtype=torch.float32)
         else:
-            after_boxes = torch.as_tensor(after_boxes, dtype=torch.int32)
-        after_labels = torch.as_tensor(after_labels, dtype=torch.int32)
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
         
-        return (before_img, after_img), {'boxes': after_boxes, 'labels': after_labels}
+        return img, boxes
     
     def __len__(self):
-        return len(self.merged_dataset)
+        return len(self.items)
 
 
 def collate_fn(batch):
     """
-    batch: list of tuple (before_img, after_img), targets
+    batch: list of (image, target) tuples
+    return: {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
     """
-    images = [ (before, after) for (before, after), targets in batch ]
-    targets = [ targets for (before, after), targets in batch ]
+    imgs = []
+    batch_idx, cls, bboxes = [], [], []
+    for i, (img, boxes) in enumerate(batch):
+        imgs.append(img)
 
-    before_images = [ before for before, after in images ]
-    after_images = [ after for before, after in images ]
-    before_images = torch.stack(before_images)
-    after_images = torch.stack(after_images)
+        batch_idx.append(torch.full((len(boxes), 1), i, dtype=torch.int))
+        cls.append(boxes[:, 0])
+        bboxes.append(boxes[:, 1:])
 
-    return (before_images, after_images), targets
+    batch_idx = torch.cat(batch_idx, 0)
+    cls = torch.cat(cls, 0)
+    bboxes = torch.cat(bboxes, 0)
+
+    imgs = torch.stack([img for img, _ in batch], 0)
+    gt = {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
+    return imgs, gt
 
 
-def test(dataset_dir: str):
-    ds = LBIDRawDataset(dataset_dir,)
-    trainset, testset = ds.split_raw_dataset((2, 1), (2, 2))
-    trainset: TensorDataset = LBIDTensorDataset(trainset, None)
-    testset: TensorDataset = LBIDTensorDataset(testset, None)
-    # show a random image pair from dataset
-    import random
-    import matplotlib.pyplot as plt
-    index = random.randint(0, len(trainset) - 1)
-    (before, after), targets = trainset[index]
-    boxes, labels = targets['boxes'], targets['labels']
-    labels = [ LBIDRawDataset.labels[i] for i in labels ]
+def test():
+    dataset_dir = './dataset/'
+    with open(dataset_dir + 'classes.txt', 'r') as f:
+        lines = f.readlines()
+        labels = [ line.strip() for line in lines ]
     
-    plt.subplot(1, 2, 1)
-    plt.imshow(before)
-    plt.subplot(1, 2, 2)
-    # add a bounding box to after image
-    # box = [x, y, w, h]
-    after = np.array(after)
-    for box in boxes:
-        x1, y1, x2, y2 = box
-        line_width = 5
-        after[y1:y1+line_width, x1:x2, :] = 255
-        after[y2-line_width:y2, x1:x2, :] = 255
-        after[y1:y2, x1:x1+line_width, :] = 255
-        after[y1:y2, x2-line_width:x2, :] = 255
-    after = Image.fromarray(after)
-    
-    plt.imshow(after)
-    plt.title(labels)
-    plt.show()
+    raw_dataset = LBIDRawDataset(
+        image_dir='./dataset/images/train/',
+        label_dir='./dataset/labels/train/',
+        img_size=(1920, 1080),
+        labels=labels,
+    )
 
+    transform = transforms.Compose([
+        transforms.Resize((640, 640)),
+        transforms.ToTensor(),
+    ])
+    dataset = YoloTensorDataset(raw_dataset, transform=transform)
+    dataloader = DataLoader(dataset, batch_size=8, shuffle=True, collate_fn=collate_fn)
+
+    for i, (img, gt) in enumerate(dataloader):
+        # show box on image
+        img = img[0].permute(1, 2, 0).numpy()
+        boxes = gt['bboxes'][0]
+        xyxy = ops.box_convert(boxes, 'xywh', 'xyxy').numpy()
+        boxes = [ xyxy, ]
+        img = plot_boxes_on_img(img, boxes)
+        
+        # show image
+        plt.imshow(img)
+        plt.savefig(f"./test_{i}.png")
+        break
+
+        
 
 if __name__ == '__main__':
-    dataset_dir = '/home/jiyao/project/ynet/dataset/raw/'
-    test(dataset_dir)
+    import matplotlib.pyplot as plt
+    test()

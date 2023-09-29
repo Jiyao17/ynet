@@ -13,6 +13,11 @@ def matched_preds(
     if len(labels) == 0:
         labels = [0]
 
+    if isinstance(labels, torch.Tensor):
+        labels = labels.detach().cpu().numpy()
+    if isinstance(labels_gt, torch.Tensor):
+        labels_gt = labels_gt.detach().cpu().numpy()
+
     pred_vec = np.zeros(num_classes)
     target_vec = np.zeros(num_classes)
     for label in labels:
@@ -41,6 +46,7 @@ def plot_boxes_on_img(
     boxes: list of box [x1, y1, x2, y2]
     """
 
+    
     for box in boxes:
         x1, y1, x2, y2 = int(box[0]), int(box[1]), int(box[2]), int(box[3])
         img[y1:y1+width, x1:x2, :] = color

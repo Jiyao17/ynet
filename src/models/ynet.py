@@ -1,7 +1,10 @@
 
+from collections import OrderedDict
 
 import torch
 from torch import nn
+
+from src.models.nn import Conv, Backbone, Head, C2f, FPN
 
 
 class ConvFusor(nn.Module):
@@ -129,8 +132,7 @@ class YNetBackbone(nn.Module):
 
         self.fusor = FusionPlant(depth, width, ratio)
 
-        self.fpn = FCOSFPN(depth, width, ratio)
-
+        self.fpn = FPN(depth, width, ratio)
 
     def forward(self, x) -> 'tuple[torch.Tensor]':
         c4_1, c6_1, sppf_1 = self.backbone1(x[0])
