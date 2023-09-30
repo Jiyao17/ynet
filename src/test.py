@@ -55,12 +55,13 @@ def test_model(dataloader: DataLoader, model: YOLOv8, DEVICE, folder='./'):
     for i, (images, gt) in enumerate(dataloader):
         images = images.to(DEVICE)
         pred = model.predict(images, conf_th=0.25, iou_th=0.45)
-        assert len(pred) == len(images), "pred and images must have the same length."
         # statistics
         for j, img in enumerate(images):
             pd_classes = pred[j][:, -1].detach().cpu()
             mask = (gt['batch_idx'] == j).squeeze()
-            labels = gt['cls'][mask]
+            cls = gt['cls'].squeeze()
+            labels = cls[mask]
+            assert len(labels.shape) == 1
             pred_, target_, match_ = matched_preds(pd_classes, labels, model.num_class)
             pred_vec += pred_
             target_vec += target_

@@ -46,6 +46,11 @@ class LBIDRawDataset():
         for image_file in image_files:
             image_path = self.image_dir + image_file
             label_path = self.label_dir + image_file.replace(".jpg", ".txt")
+            # background image
+            if not os.path.exists(label_path):
+                items.append((image_path, []))
+                continue
+
             with open(label_path, 'r') as f:
                 lines = f.readlines()
                 lines = [ line.strip() for line in lines ]
@@ -76,15 +81,41 @@ class YoloTensorDataset(Dataset):
     def __getitem__(self, index: int):
         item = self.items[index]
         img = Image.open(item[0])
-        original_size = np.array(img.size, dtype=np.float32)
-        scaled_size = original_size
         if self.transform is not None:
             img = self.transform(img)
-            scaled_size = np.array(img.shape[1:], dtype=np.float32)
-        # scales = scaled_size / original_size
 
         boxes = np.array(item[1], dtype=np.float32)
         # boxes[:, 1:] *= scales[0], scales[1], scales[0], scales[1]
+        if len(boxes) == 0:
+            boxes = torch.zeros((0, 5), dtype=torch.float32)
+        else:
+            boxes = torch.as_tensor(boxes, dtype=torch.float32)
+        
+        return img, boxes
+    
+    def __len__(self):
+        return len(self.items)
+
+
+
+class YNetTensorDataset(Dataset):
+    def __init__(self, dataset: LBIDRawDataset, transform=None) -> None:
+        super().__init__()
+        self.dataset = dataset
+        self.transform = transform
+
+        self.items = dataset.items
+
+    def combine(self):
+        pass
+
+    def __getitem__(self, index: int):
+        item = self.items[index]
+        img = Image.open(item[0])
+        if self.transform is not None:
+            img = self.transform(img)
+
+        boxes = np.array(item[1], dtype=np.float32)
         if len(boxes) == 0:
             boxes = torch.zeros((0, 4), dtype=torch.float32)
         else:
@@ -94,6 +125,8 @@ class YoloTensorDataset(Dataset):
     
     def __len__(self):
         return len(self.items)
+
+
 
 
 def collate_fn(batch):

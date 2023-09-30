@@ -6,6 +6,8 @@ from typing import List, Any
 import torch
 from torch import nn
 
+from ultralytics.nn.modules import DFL
+
 
 def autopad(k, p=None, d=1):  # kernel, padding, dilation
     """Pad to 'same' shape outputs."""
@@ -200,7 +202,7 @@ class Detect(nn.Module):
                 ) for channel in channels
             )
         
-        self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
+        # self.dfl = DFL(reg_max) if reg_max > 1 else nn.Identity()
 
     def forward(self, xs: List[torch.Tensor]) -> 'tuple[torch.Tensor]':
         """

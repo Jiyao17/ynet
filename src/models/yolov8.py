@@ -52,19 +52,22 @@ class YOLOv8(nn.Module):
         c4, c6, sppf = self.backbone(x)
         output = self.head(c4, c6, sppf)
         
-        if self.maps_shapes is None:
-            # generate one shape for each grid cell
-            self.maps_shapes = [x.shape for x in output]
-        if self.anchors_points is None:
-            # generate one anchor for each grid cell
-            self.anchors_points, self.anchor_strides = \
-                (x.transpose(0, 1) for x in make_anchors(output, self.strides, 0.5))
+        # generate one shape for each grid cell
+        self.maps_shapes = [x.shape for x in output]
+        # generate one anchor for each grid cell
+        self.anchors_points, self.anchor_strides = \
+            (x.transpose(0, 1) for x in make_anchors(output, self.strides, 0.5))
                  
         batch = self.maps_shapes[0][0]
-        x_cat = torch.cat([x.view(batch, self.num_outputs, -1) for x in output], dim=2)
+        assert output[0].shape[0] == batch
+        # x_cat = torch.cat([x.view(batch, self.num_outputs, -1) for x in output], dim=2)
+        out = [x.view(batch, self.num_outputs, -1) for x in output]
+        x_cat = torch.cat(out, dim=2)
+        assert x_cat.shape[-1] == 8400
         # reg_max*4 for bbox, num_class for cls
         box, cls = x_cat.split([self.reg_max*4, self.num_class], dim=1)
         # one dbox (ltrb) for each anchor
+        dbox = self.dfl(box)
         dbox = dist2bbox(self.dfl(box), self.anchors_points.unsqueeze(0), True, 1) * self.anchor_strides
         # sigmoid for cls
         cls = cls.sigmoid()

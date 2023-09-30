@@ -10,14 +10,12 @@ def matched_preds(
     labels: Union[np.ndarray, torch.Tensor, List[int]],
     labels_gt: Union[np.ndarray, torch.Tensor, List[int]],
     num_classes: int) -> tuple:
-    if len(labels) == 0:
-        labels = [0]
 
     if isinstance(labels, torch.Tensor):
         labels = labels.detach().cpu().numpy()
     if isinstance(labels_gt, torch.Tensor):
         labels_gt = labels_gt.detach().cpu().numpy()
-
+    
     pred_vec = np.zeros(num_classes)
     target_vec = np.zeros(num_classes)
     for label in labels:
