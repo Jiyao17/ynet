@@ -114,7 +114,7 @@ def test_yolov8():
     cat_filter = {}
     for label in labels:
         cat_filter[label] = 150
-    cat_filter['background'] = 500
+    cat_filter['background'] = 150
     trainset.filter(cat_filter)
     testset = LBIDRawDataset(
         image_dir='./dataset/images/test/',

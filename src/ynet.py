@@ -116,7 +116,7 @@ def test_ynet():
     cat_filter = {}
     for label in labels:
         cat_filter[label] = 150
-    cat_filter['background'] = 500
+    cat_filter['background'] = 150
     trainset.filter(cat_filter)
 
     testset = LBIDRawDataset(
@@ -129,7 +129,7 @@ def test_ynet():
     cat_filter = {}
     for label in labels:
         cat_filter[label] = 30
-    cat_filter['background'] = 0
+    cat_filter['background'] = 100
     testset.filter(cat_filter)
     testset.add_background('./dataset/images/nothing_1_frame373.jpg')
 

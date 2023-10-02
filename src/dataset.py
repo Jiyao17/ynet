@@ -156,8 +156,9 @@ class YoloTensorDataset(Dataset):
 
 
 class YNetTensorDataset(YoloTensorDataset):
-    def __init__(self, dataset: LBIDRawDataset, transform=None) -> None:
+    def __init__(self, dataset: LBIDRawDataset, transform=None, test_mode=False) -> None:
         super().__init__(dataset, transform)
+        self.test_mode = test_mode
 
         assert dataset.cat_items is not None, "Dataset must be categorized first."
 
@@ -166,9 +167,14 @@ class YNetTensorDataset(YoloTensorDataset):
         # get an item from a random category first
         image, boxes = YoloTensorDataset.__getitem__(self, index)
         # get a background image
-        backgrounds = self.dataset.cat_items['background']
-        idx = np.random.randint(len(backgrounds))
-        data: DataEntry = backgrounds[idx]
+        if self.test_mode:
+            # a fixed background image in test mode
+            data = self.dataset.cat_items['background'][-1]
+        else:
+            # a random background image in train mode
+            backgrounds = self.dataset.cat_items['background']
+            idx = np.random.randint(len(backgrounds))
+            data: DataEntry = backgrounds[idx]
         full_idx = self.items.index(data)
         background, _ = YoloTensorDataset.__getitem__(self, full_idx)
 
