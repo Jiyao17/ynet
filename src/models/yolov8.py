@@ -35,22 +35,16 @@ class YOLOv8(nn.Module):
                     shape = (batch, num_outputs, h, w)
                 if inference, return (batch, num_outputs, num_anchors)
         """
-        assert self.training, "Please call predict() for inference."
         
         c4, c6, sppf = self.backbone(x)
         output = self.head(c4, c6, sppf)
         return output
         
-
     def predict(self, x, conf_th, iou_th):
         """
         return shape = (batch, 4 (box) + 1 (conf) + 1 (cls))
         """
-        assert not self.training, "Please call forward() for training."
-
-        # same as forward()
-        c4, c6, sppf = self.backbone(x)
-        output = self.head(c4, c6, sppf)
+        output = self.forward(x)
         
         # generate one shape for each grid cell
         self.maps_shapes = [x.shape for x in output]
@@ -80,7 +74,6 @@ class YOLOv8(nn.Module):
         # shape = (batch, 4 (box) + 1 (conf) + 1 (cls))
         results = nms(y, conf_th, iou_th, classes=range(self.num_class))
         return results
-
 
     def __call__(self, *args: Any, **kwds: Any) -> torch.Tensor:
         return self.forward(*args, **kwds)

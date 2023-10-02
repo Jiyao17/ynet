@@ -19,7 +19,7 @@ from src.utils.loss import v8DetectionLoss
 
 def train_model(
         dataloader: DataLoader, 
-        model: YOLOv8, 
+        model: YNet, 
         optimizer: torch.optim.Optimizer, 
         loss_fn: v8DetectionLoss,
         DEVICE='cuda',
@@ -28,13 +28,14 @@ def train_model(
     model.train()
     model.to(DEVICE)
     loop = tqdm.tqdm(dataloader)
-    for i, (images, gt) in enumerate(loop):
+    for i, ((backgrounds, images), gt) in enumerate(loop):
+        backgrounds = backgrounds.to(DEVICE)
         images = images.to(DEVICE)
         gt['bboxes'] = gt['bboxes'].to(DEVICE)
         gt['cls'] = gt['cls'].to(DEVICE)
         gt['batch_idx'] = gt['batch_idx'].to(DEVICE)
 
-        pred = model(images)
+        pred = model((backgrounds, images))
         loss, loss_items = loss_fn(pred, gt)
 
         optimizer.zero_grad()
@@ -53,9 +54,10 @@ def test_model(dataloader: DataLoader, model: YOLOv8, DEVICE, folder=None):
     pred_vec = np.zeros(model.num_class)
     target_vec = np.zeros(model.num_class)
     match_vec = np.zeros(model.num_class)
-    for i, (images, gt) in enumerate(dataloader):
+    for i, ((backgrounds, images), gt) in enumerate(dataloader):
+        backgrounds = backgrounds.to(DEVICE)
         images = images.to(DEVICE)
-        pred = model.predict(images, conf_th=0.25, iou_th=0.45)
+        pred = model.predict((backgrounds, images), conf_th=0.25, iou_th=0.45)
         # statistics
         for j, img in enumerate(images):
             pd_classes = pred[j][:, -1].detach().cpu()
@@ -85,7 +87,7 @@ def test_model(dataloader: DataLoader, model: YOLOv8, DEVICE, folder=None):
 
     return pred_vec, target_vec, match_vec
 
-def test_yolov8():
+def test_ynet():
     dataset_dir = './dataset/'
     num_classes, reg_max = 3, 4
     size = SIZES['n']
@@ -96,7 +98,7 @@ def test_yolov8():
     LRS = [1e-2]*5 + [1e-3]*5 + [1e-4]*5 + [1e-5]*5 + [1e-6]*5
     DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
     PRETRAINED_MODEL = None
-    # PRETRAINED_MODEL = './checkpoint/checkpoint19.pth'
+    # PRETRAINED_MODEL = './checkpoint/checkpoint24.pth'
     SAMPLE_OUTPUT = None
     # SAMPLE_OUTPUT = './checkpoint/'
 
@@ -116,6 +118,7 @@ def test_yolov8():
         cat_filter[label] = 150
     cat_filter['background'] = 500
     trainset.filter(cat_filter)
+
     testset = LBIDRawDataset(
         image_dir='./dataset/images/test/',
         label_dir='./dataset/labels/test/',
@@ -126,29 +129,30 @@ def test_yolov8():
     cat_filter = {}
     for label in labels:
         cat_filter[label] = 30
-    cat_filter['background'] = 100
+    cat_filter['background'] = 0
     testset.filter(cat_filter)
+    testset.add_background('./dataset/images/nothing_1_frame373.jpg')
 
     transform = transforms.Compose([
         transforms.Resize((640, 640)),
         transforms.ToTensor(),
     ])
-    trainset = YoloTensorDataset(trainset, transform=transform)
+    trainset = YNetTensorDataset(trainset, transform=transform)
     trainloader = DataLoader(trainset,
         batch_size=BATCH_SIZE,
         shuffle=True,
-        collate_fn=YoloTensorDataset.collate_fn,
+        collate_fn=YNetTensorDataset.collate_fn,
         num_workers=NUM_WORKERS,
         )
-    testset = YoloTensorDataset(testset, transform=transform)
+    testset = YNetTensorDataset(testset, transform=transform)
     testloader = DataLoader(testset,
         batch_size=BATCH_SIZE,
-        shuffle=True,
-        collate_fn=YoloTensorDataset.collate_fn,
+        shuffle=False,
+        collate_fn=YNetTensorDataset.collate_fn,
         num_workers=NUM_WORKERS,
         )
 
-    model = YOLOv8(size, num_classes, reg_max)
+    model = YNet(size, num_classes, reg_max)
     optimizer = torch.optim.Adam(model.parameters(), lr=LRS[0])
     # bacause loss_fn uses model.device
     model.to(DEVICE)
@@ -177,6 +181,6 @@ def test_yolov8():
         print(f"mAP: {mAP:.4f}, mAR: {mAR:.4f}, ap: {ap:.4f}, ar: {ar:.4f}")
 
 
+
 if __name__ == "__main__":
-    test_yolov8()
-    # test_ynet()
+    test_ynet()

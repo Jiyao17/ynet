@@ -1,7 +1,8 @@
 
 
 import os
-from typing import NewType, Tuple, List
+from typing import NewType, Tuple, List, Dict
+from typing_extensions import override
 
 import torch
 from torch.utils.data import Dataset, DataLoader
@@ -22,7 +23,6 @@ DataEntry = Tuple[Filename, Tuple[BBox]]
 
 
 class LBIDRawDataset():
-    labels = None
 
     def __init__(self,
         image_dir: str,
@@ -38,6 +38,8 @@ class LBIDRawDataset():
 
         self.stats = np.zeros(len(self.labels)+1, dtype=np.int32)
         self.items: List[DataEntry] = self.parse_items()
+        print(f"Dataset stats: {self.stats}")
+        self.cat_items: 'Dict[str, List[DataEntry]]' = None
 
     def parse_items(self,) -> List[DataEntry]:
         image_files: List[str] = os.listdir(self.image_dir)
@@ -49,6 +51,7 @@ class LBIDRawDataset():
             # background image
             if not os.path.exists(label_path):
                 items.append((image_path, []))
+                self.stats[-1] += 1
                 continue
 
             with open(label_path, 'r') as f:
@@ -68,7 +71,33 @@ class LBIDRawDataset():
                 items.append((image_path, bboxes))
 
         return items
+    
+    def categorize(self,):
+        self.cat_items: 'Dict[str, List[DataEntry]]' = {}
+        self.cat_items['background'] = []
+        for item in self.items:
+            bboxes = item[1]
+            if len(bboxes) == 0:
+                label = 'background'
+            else:
+                label = self.labels[bboxes[0][0]]
+            
+            if label not in self.cat_items:
+                self.cat_items[label] = []
+            self.cat_items[label].append(item)
 
+    def filter(self, nums: Dict):
+        for label, num in nums.items():
+            if label not in self.cat_items:
+                raise ValueError(f"Label {label} not found in dataset.")
+            if num > len(self.cat_items[label]):
+                raise ValueError(f"Label {label} has only {len(self.cat_items[label])} items. " + \
+                    "But {num} items are required.")
+            self.cat_items[label] = self.cat_items[label][:num]
+
+    def add_background(self, image_path: str):
+        self.cat_items['background'].append((image_path, []))
+        self.stats[-1] += 1
 
 class YoloTensorDataset(Dataset):
     def __init__(self, dataset: LBIDRawDataset, transform=None) -> None:
@@ -76,7 +105,13 @@ class YoloTensorDataset(Dataset):
         self.dataset = dataset
         self.transform = transform
 
-        self.items = dataset.items
+        self.items: List[DataEntry] = []
+        if dataset.cat_items is not None:
+            for label in dataset.cat_items:
+                self.items += dataset.cat_items[label]
+        else:
+            self.items = dataset.items
+
 
     def __getitem__(self, index: int):
         item = self.items[index]
@@ -96,60 +131,61 @@ class YoloTensorDataset(Dataset):
     def __len__(self):
         return len(self.items)
 
+    @staticmethod
+    def collate_fn(batch):
+        """
+        batch: list of (image, target) tuples
+        return: {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
+        """
+        imgs = []
+        batch_idx, cls, bboxes = [], [], []
+        for i, (img, boxes) in enumerate(batch):
+            imgs.append(img)
+
+            batch_idx.append(torch.full((len(boxes), 1), i, dtype=torch.int))
+            cls.append(boxes[:, 0])
+            bboxes.append(boxes[:, 1:])
+
+        batch_idx = torch.cat(batch_idx, 0)
+        cls = torch.cat(cls, 0)
+        bboxes = torch.cat(bboxes, 0)
+
+        imgs = torch.stack([img for img, _ in batch], 0)
+        gt = {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
+        return imgs, gt
 
 
-class YNetTensorDataset(Dataset):
+class YNetTensorDataset(YoloTensorDataset):
     def __init__(self, dataset: LBIDRawDataset, transform=None) -> None:
-        super().__init__()
-        self.dataset = dataset
-        self.transform = transform
+        super().__init__(dataset, transform)
 
-        self.items = dataset.items
+        assert dataset.cat_items is not None, "Dataset must be categorized first."
 
-    def combine(self):
-        pass
-
+    @override
     def __getitem__(self, index: int):
-        item = self.items[index]
-        img = Image.open(item[0])
-        if self.transform is not None:
-            img = self.transform(img)
+        # get an item from a random category first
+        image, boxes = YoloTensorDataset.__getitem__(self, index)
+        # get a background image
+        backgrounds = self.dataset.cat_items['background']
+        idx = np.random.randint(len(backgrounds))
+        data: DataEntry = backgrounds[idx]
+        full_idx = self.items.index(data)
+        background, _ = YoloTensorDataset.__getitem__(self, full_idx)
 
-        boxes = np.array(item[1], dtype=np.float32)
-        if len(boxes) == 0:
-            boxes = torch.zeros((0, 4), dtype=torch.float32)
-        else:
-            boxes = torch.as_tensor(boxes, dtype=torch.float32)
-        
-        return img, boxes
-    
-    def __len__(self):
-        return len(self.items)
+        return (background, image), boxes
 
+    @override
+    def collate_fn(batch):
+        """
+        batch: list of ((background, image), target) tuples
+        return: {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
+        """
+        sub_batch = [ (image, target) for (bg, image), target in batch ]
+        images, gt = YoloTensorDataset.collate_fn(sub_batch)
+        backgrounds = torch.stack([bg for (bg, _), _ in batch], 0)
 
+        return (backgrounds, images), gt
 
-
-def collate_fn(batch):
-    """
-    batch: list of (image, target) tuples
-    return: {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
-    """
-    imgs = []
-    batch_idx, cls, bboxes = [], [], []
-    for i, (img, boxes) in enumerate(batch):
-        imgs.append(img)
-
-        batch_idx.append(torch.full((len(boxes), 1), i, dtype=torch.int))
-        cls.append(boxes[:, 0])
-        bboxes.append(boxes[:, 1:])
-
-    batch_idx = torch.cat(batch_idx, 0)
-    cls = torch.cat(cls, 0)
-    bboxes = torch.cat(bboxes, 0)
-
-    imgs = torch.stack([img for img, _ in batch], 0)
-    gt = {'batch_idx': batch_idx, 'cls': cls, 'bboxes': bboxes}
-    return imgs, gt
 
 
 def test():
